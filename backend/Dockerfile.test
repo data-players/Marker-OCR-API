@@ -1,0 +1,42 @@
+# Optimized Dockerfile for testing (without heavy ML dependencies)
+FROM python:3.11-slim
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN groupadd -r testuser && useradd -r -g testuser testuser
+
+# Set working directory
+WORKDIR /app
+
+# IMPORTANT: Use minimal requirements for fast test builds
+# This excludes heavy ML dependencies (Marker, PyTorch) to speed up testing
+COPY requirements-minimal.txt .
+
+# Install Python dependencies (much faster without ML packages)
+# Typical build time: ~30s instead of ~7min with full requirements.txt
+RUN pip install --no-cache-dir -r requirements-minimal.txt
+
+# Copy application code
+COPY . .
+
+# Create necessary directories and change ownership
+RUN mkdir -p uploads outputs logs test-results && \
+    chown -R testuser:testuser /app
+
+# Switch to non-root user
+USER testuser
+
+# Set environment for testing
+ENV PYTHONPATH=/app
+ENV ENVIRONMENT=test
+
+# Health check (lightweight)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+    CMD python -c "import app.core.config; print('OK')" || exit 1
+
+# Default command for running tests
+CMD ["pytest", "--tb=short", "-v"] 

@@ -1,0 +1,154 @@
+# Marker-OCR-API Project Rules
+
+## Architecture Principles
+
+### Core Principles
+- **One Layer, One Responsibility**: Each layer has a single, well-defined responsibility
+- **Separation of Concerns**: Business logic, API layer, and data handling are strictly separated
+- **Dependency Injection**: Services are injected rather than imported directly
+- **Clean Architecture**: Dependencies point inward toward the business logic
+
+### Project Structure
+```
+backend/
+├── app/
+│   ├── core/           # Configuration, exceptions, logging
+│   ├── api/            # FastAPI routes and HTTP layer
+│   ├── services/       # Business logic layer
+│   ├── models/         # Pydantic models for requests/responses
+│   └── utils/          # Pure utility functions
+├── tests/              # Unit tests mirroring app structure
+└── Dockerfile
+
+frontend/
+├── src/
+│   ├── components/     # Reusable UI components
+│   ├── services/       # API communication layer
+│   ├── utils/          # Pure utility functions
+│   └── pages/          # Page components
+├── tests/              # Frontend tests
+└── Dockerfile
+```
+
+## Code Standards
+
+### Language Rules
+- **Comments and Code**: Always in English
+- **Chat Communication**: In French
+- **Variable/Function Names**: English, descriptive, following conventions
+
+### Python Backend
+- Use FastAPI for API layer
+- Pydantic for data validation
+- Dependency injection pattern
+- Type hints mandatory
+- Max function length: 20 lines
+- Max class length: 100 lines
+- Follow PEP 8
+
+### Frontend
+- Modern JavaScript/TypeScript
+- Component-based architecture
+- Separation of concerns between UI and business logic
+- Error boundaries for robust error handling
+
+### Testing
+- **Mandatory**: Unit tests for all business logic in services/
+- **Mandatory**: Integration tests for API endpoints
+- **Mandatory**: Component tests for frontend
+- Test coverage minimum: 80%
+- Use pytest for Python, Jest for JavaScript
+
+### Docker & DevOps
+- Multi-stage builds for production optimization
+- Health checks in all containers
+- Environment-based configuration
+- Volume mounting for development
+- Optimized test images for rapid development cycles
+
+## File Organization
+
+### Maximum File Sizes
+- Python files: 200 lines maximum
+- JavaScript files: 150 lines maximum
+- Configuration files: 50 lines maximum
+
+### Naming Conventions
+- Files: snake_case for Python, kebab-case for frontend
+- Classes: PascalCase
+- Functions/Variables: camelCase (JS), snake_case (Python)
+- Constants: UPPER_SNAKE_CASE
+
+## Dependencies
+
+### Core Dependencies
+- **Backend**: FastAPI, Pydantic, Marker library, pytest
+- **Frontend**: React/Vue.js or vanilla JS, modern build tools
+- **Infrastructure**: Docker, Docker Compose
+
+### Testing Optimizations
+- **Lightweight test images**: Separate Docker images for testing without ML dependencies
+- **Mock services**: Use mock implementations for unit tests
+- **Minimal requirements**: Test-specific requirements.txt for faster builds
+
+### Prohibited Patterns
+- God objects/classes
+- Direct file system access from API layer
+- Hardcoded configurations
+- Missing error handling
+- Untested business logic
+
+## Documentation Standards
+
+### Project Documentation
+- **README.md**: Main project overview and quickstart
+- **MAKEFILE_GUIDE.md**: Comprehensive Makefile command reference
+- **QUICK_START.md**: 30-second setup guide
+- **API Documentation**: Auto-generated from FastAPI (available at /docs)
+
+### Documentation Maintenance
+- Keep documentation in sync with code changes
+- Update guides when new commands or features are added
+- Maintain examples with current command syntax
+- Include performance metrics and optimization tips
+
+## Update Policy
+
+**IMPORTANT**: This .cursorrules file MUST be updated whenever:
+- New architectural decisions are made
+- Global application rules change
+- New technology is adopted
+- Code standards are modified
+- Project structure changes
+
+**CRITICAL**: The following documentation files MUST be updated when relevant changes occur:
+
+### MAKEFILE_GUIDE.md Updates Required When:
+- New Makefile commands are added or modified
+- Docker optimization strategies change
+- Test architecture is modified (e.g., new test images, mock services)
+- Performance improvements are implemented
+- New development workflows are established
+- CI/CD pipeline changes affect available commands
+- Build processes are optimized or restructured
+
+### Other Documentation Updates:
+- **README.md**: When project scope, installation, or main features change
+- **QUICK_START.md**: When setup process is simplified or modified
+- **API Documentation**: Automatically updated via FastAPI, manual review for breaking changes
+
+The coding agent is responsible for updating this file to maintain consistency across the project.
+
+## Error Handling
+- Use structured exceptions with proper HTTP status codes
+- Log all errors with appropriate context
+- Graceful degradation for non-critical features
+- User-friendly error messages in the frontend
+
+## Performance
+- Async/await for I/O operations
+- Efficient file handling for large documents
+- Progress tracking for long-running operations
+- Resource cleanup after processing
+- Docker image optimization for development speed
+- Separate test and production build strategies 
