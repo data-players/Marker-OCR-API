@@ -288,8 +288,7 @@ async def api_info():
             "pdf_processing": True,
             "background_jobs": True,
             "multiple_formats": True,
-            "batch_processing": False,  # Not implemented in this version
-            "authentication": settings.api_key is not None
+            "batch_processing": False  # Not implemented in this version
         },
         "limits": {
             "max_file_size_mb": settings.max_file_size // (1024 * 1024),

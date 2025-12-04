@@ -8,10 +8,8 @@ from typing import Optional
 from fastapi import Depends, HTTPException, Header
 
 from app.core.config import settings
-from app.core.exceptions import AuthenticationError
 from app.services.file_handler import FileHandlerService
 from app.services.document_parser import DocumentParserService
-from app.utils.validators import validate_api_key
 
 
 # Service instances (singletons)
@@ -47,50 +45,6 @@ def get_document_parser() -> DocumentParserService:
     return _document_parser_instance
 
 
-async def verify_api_key(
-    x_api_key: Optional[str] = Header(None, alias="X-API-Key")
-) -> bool:
-    """
-    Verify API key if authentication is enabled.
-    
-    Args:
-        x_api_key: API key from request header
-        
-    Returns:
-        True if authentication is valid
-        
-    Raises:
-        HTTPException: If authentication fails
-    """
-    if not validate_api_key(x_api_key, settings.api_key):
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid or missing API key",
-            headers={"WWW-Authenticate": "Bearer"}
-        )
-    
-    return True
-
-
-async def get_current_user(
-    api_key_valid: bool = Depends(verify_api_key)
-) -> dict:
-    """
-    Get current user information (placeholder for future user system).
-    
-    Args:
-        api_key_valid: Result from API key verification
-        
-    Returns:
-        User information dictionary
-    """
-    # For now, return a default user since we only have API key auth
-    # In the future, this would decode JWT tokens or lookup user info
-    return {
-        "user_id": "api_user",
-        "username": "API User",
-        "permissions": ["read", "write", "process"]
-    }
 
 
 def get_pagination_params(
@@ -163,13 +117,11 @@ class CommonDependencies:
         file_handler: FileHandlerService = Depends(get_file_handler),
         document_parser: DocumentParserService = Depends(get_document_parser),
         pagination: dict = Depends(get_pagination_params),
-        user: dict = Depends(get_current_user),
         service_health: bool = Depends(check_service_health)
     ):
         self.file_handler = file_handler
         self.document_parser = document_parser
         self.pagination = pagination
-        self.user = user
         self.service_health = service_health
 
 

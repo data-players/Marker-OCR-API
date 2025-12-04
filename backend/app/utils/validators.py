@@ -196,25 +196,6 @@ def clean_text_content(content: str) -> str:
     return content
 
 
-def validate_api_key(api_key: Optional[str], expected_key: Optional[str]) -> bool:
-    """
-    Validate API key if authentication is enabled.
-    
-    Args:
-        api_key: Provided API key
-        expected_key: Expected API key from settings
-        
-    Returns:
-        True if valid or authentication disabled, False otherwise
-    """
-    # If no expected key is set, authentication is disabled
-    if not expected_key:
-        return True
-    
-    # If expected key is set, provided key must match
-    return api_key == expected_key
-
-
 def extract_metadata_from_filename(filename: str) -> Dict[str, Any]:
     """
     Extract useful metadata from filename.

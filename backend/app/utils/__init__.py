@@ -12,7 +12,6 @@ from .validators import (
     validate_job_id,
     validate_content_type,
     clean_text_content,
-    validate_api_key,
     extract_metadata_from_filename,
 )
 
@@ -26,6 +25,5 @@ __all__ = [
     "validate_job_id",
     "validate_content_type",
     "clean_text_content",
-    "validate_api_key",
     "extract_metadata_from_filename",
 ] 
