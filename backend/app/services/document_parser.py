@@ -7,6 +7,7 @@ import asyncio
 import json
 import time
 import os
+import gc
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple, List
 from concurrent.futures import ThreadPoolExecutor
@@ -388,7 +389,8 @@ class DocumentParserService:
                     
                     logger.info("🎉 Successfully generated BOTH formats!")
                     
-                    return {
+                    # Prepare result before cleanup
+                    result = {
                         "text": markdown_content,  # Contenu markdown pour preview
                         "markdown_content": markdown_content,  # Contenu markdown explicite
                         "rich_structure": rich_structure,  # Structure JSON native
@@ -396,6 +398,13 @@ class DocumentParserService:
                         "images": images,
                         "processing_time": None  # Will be set below
                     }
+                    
+                    # 🧹 Force garbage collection to free memory
+                    del json_converter, markdown_converter, json_rendered, markdown_rendered
+                    gc.collect()
+                    logger.info("🧹 Memory cleanup completed")
+                    
+                    return result
                     
                 except Exception as e:
                     logger.error(f"Dual format processing failed, trying fallback: {str(e)}")
@@ -407,7 +416,7 @@ class DocumentParserService:
                         text, metadata, images = text_from_rendered(rendered)
                         rich_structure = create_rich_structure_from_markdown(text, images, metadata)
                         
-                        return {
+                        result = {
                             "text": text,
                             "markdown_content": text,
                             "rich_structure": rich_structure,
@@ -415,6 +424,12 @@ class DocumentParserService:
                             "images": images,
                             "processing_time": None
                         }
+                        
+                        # 🧹 Force garbage collection
+                        del converter, rendered
+                        gc.collect()
+                        
+                        return result
                     except Exception as fallback_error:
                         logger.error(f"Fallback also failed: {str(fallback_error)}")
                         raise RuntimeError(f"All processing methods failed: {str(e)}, {str(fallback_error)}")
