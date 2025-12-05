@@ -61,4 +61,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 EXPOSE 80
 
 # Start simple HTTP server to serve static files
-CMD ["npx", "http-server", "-p", "80", "-d", "/app/dist", "--gzip"] 
+CMD ["npx", "http-server", "/app/dist", "-p", "80", "--gzip"] 
