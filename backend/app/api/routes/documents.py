@@ -25,15 +25,13 @@ from app.models import (
 from app.models.enums import ProcessingOptions, OutputFormat
 from app.services.file_handler import FileHandlerService
 from app.services.document_parser import DocumentParserService
+from app.services.redis_service import RedisService
 from app.utils.validators import validate_filename, validate_job_id
-from app.api.dependencies import get_file_handler, get_document_parser
+from app.api.dependencies import get_file_handler, get_document_parser, get_redis
 
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/documents", tags=["documents"])
-
-# Store for tracking job statuses
-job_store = {}
 
 
 @router.post("/upload", response_model=FileUploadResponse)
@@ -95,7 +93,8 @@ async def process_document(
     language: Optional[str] = Form(None),
     background_tasks: BackgroundTasks = BackgroundTasks(),
     file_handler: FileHandlerService = Depends(get_file_handler),
-    document_parser: DocumentParserService = Depends(get_document_parser)
+    document_parser: DocumentParserService = Depends(get_document_parser),
+    redis_service: RedisService = Depends(get_redis)
 ):
     """
     Process an uploaded document.
@@ -120,10 +119,11 @@ async def process_document(
             language=language
         )
         
-        # Store job status
-        current_time = asyncio.get_event_loop().time()
-        job_store[job_id] = {
-            "status": JobStatus.PENDING,
+        # Store job status in Redis
+        import time
+        current_time = time.time()
+        job_data = {
+            "status": JobStatus.PENDING.value,
             "file_id": file_id,
             "created_at": current_time,
             "updated_at": current_time,
@@ -131,6 +131,7 @@ async def process_document(
             "result": None,
             "error": None
         }
+        redis_service.store_job(job_id, job_data)
         
         # Start background processing
         background_tasks.add_task(
@@ -139,7 +140,8 @@ async def process_document(
             str(file_path),
             options,
             document_parser,
-            file_handler
+            file_handler,
+            redis_service
         )
         
         logger.info(f"Started processing job: {job_id}")
@@ -161,7 +163,10 @@ async def process_document(
 
 
 @router.get("/jobs/{job_id}", response_model=JobResponse)
-async def get_job_status(job_id: str):
+async def get_job_status(
+    job_id: str,
+    redis_service: RedisService = Depends(get_redis)
+):
     """
     Get processing job status and results.
     Returns current status and result if processing is complete.
@@ -174,13 +179,12 @@ async def get_job_status(job_id: str):
             detail="Invalid job ID format"
         )
     
-    if job_id not in job_store:
+    job_data = redis_service.get_job(job_id)
+    if job_data is None:
         raise HTTPException(
             status_code=404,
             detail="Job not found"
         )
-    
-    job_data = job_store[job_id]
     
     return JobResponse(
         job_id=job_id,
@@ -321,22 +325,30 @@ async def process_document_background(
     file_path: Path,
     options: ProcessingOptions,
     document_parser: DocumentParserService,
-    file_handler: FileHandlerService
+    file_handler: FileHandlerService,
+    redis_service: RedisService
 ):
     """
     Background task for document processing.
-    Updates job status and stores results.
+    Updates job status and stores results in Redis.
     """
+    import time
     try:
         # Update job status to processing
-        job_store[job_id]["status"] = JobStatus.PROCESSING.value
-        job_store[job_id]["progress"] = 10.0
+        redis_service.update_job(job_id, {
+            "status": JobStatus.PROCESSING.value,
+            "progress": 10.0,
+            "updated_at": time.time()
+        })
         
         logger.info(f"Starting document processing: {job_id}")
         
         # Simulate processing steps with progress updates
         await asyncio.sleep(1)
-        job_store[job_id]["progress"] = 30.0
+        redis_service.update_job(job_id, {
+            "progress": 30.0,
+            "updated_at": time.time()
+        })
         
         # Process document using parser service
         result = await document_parser.parse_document(
@@ -348,21 +360,27 @@ async def process_document_background(
         # Convert to ProcessingResult for validation
         processing_result = ProcessingResult.from_marker_result(result)
         
-        # Store the validated result
-        job_store[job_id]["result"] = processing_result
-        
-        job_store[job_id]["progress"] = 90.0
+        redis_service.update_job(job_id, {
+            "result": processing_result.model_dump() if hasattr(processing_result, 'model_dump') else processing_result,
+            "progress": 90.0,
+            "updated_at": time.time()
+        })
         
         # Save results
-        # In a real implementation, save to disk or database
-        job_store[job_id]["status"] = JobStatus.COMPLETED.value
-        job_store[job_id]["progress"] = 100.0
+        redis_service.update_job(job_id, {
+            "status": JobStatus.COMPLETED.value,
+            "progress": 100.0,
+            "updated_at": time.time()
+        })
         
         logger.info(f"Document processing completed: {job_id}")
         
     except Exception as e:
         logger.error(f"Document processing failed for {job_id}: {str(e)}")
         
-        job_store[job_id]["status"] = JobStatus.FAILED.value
-        job_store[job_id]["error_message"] = str(e)
-        job_store[job_id]["progress"] = 0.0 
+        redis_service.update_job(job_id, {
+            "status": JobStatus.FAILED.value,
+            "error_message": str(e),
+            "progress": 0.0,
+            "updated_at": time.time()
+        }) 

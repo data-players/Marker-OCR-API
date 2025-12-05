@@ -10,11 +10,13 @@ from fastapi import Depends, HTTPException, Header
 from app.core.config import settings
 from app.services.file_handler import FileHandlerService
 from app.services.document_parser import DocumentParserService
+from app.services.redis_service import RedisService
 
 
 # Service instances (singletons)
 _file_handler_instance: Optional[FileHandlerService] = None
 _document_parser_instance: Optional[DocumentParserService] = None
+_redis_instance: Optional[RedisService] = None
 
 
 @lru_cache()
@@ -43,6 +45,20 @@ def get_document_parser() -> DocumentParserService:
         _document_parser_instance = DocumentParserService()
     
     return _document_parser_instance
+
+
+@lru_cache()
+def get_redis() -> RedisService:
+    """
+    Get singleton instance of RedisService.
+    Uses LRU cache to ensure single instance across requests.
+    """
+    global _redis_instance
+    
+    if _redis_instance is None:
+        _redis_instance = RedisService()
+    
+    return _redis_instance
 
 
 
