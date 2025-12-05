@@ -199,9 +199,9 @@ frontend-dev                # Frontend avec hot reloading
 backend-test                # Backend avec image légère
 frontend-test               # Frontend pour tests
 
-# Profil "production"
+# Profil "production" (Deprecated - use Marker-OCR-API-prod)
 backend                     # Backend optimisé
-frontend                    # Frontend avec nginx
+frontend                    # Frontend avec serveur HTTP simple
 ```
 
 ## 📈 Métriques de Performance

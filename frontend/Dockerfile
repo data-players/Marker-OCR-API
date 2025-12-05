@@ -34,25 +34,21 @@ COPY . .
 # Default command for running tests
 CMD ["npm", "test"]
 
-# Production stage
-FROM nginx:alpine AS production
+# Production stage - Simple HTTP server (no nginx needed with Traefik)
+FROM node:18-alpine AS production
+
+# Set working directory
+WORKDIR /app
 
 # Copy the built application from builder stage
-COPY --from=builder /app/dist /usr/share/nginx/html
-
-# Copy nginx configuration
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=builder /app/dist ./dist
 
 # Create non-root user
 RUN addgroup -g 1001 -S appuser && \
     adduser -S appuser -G appuser -u 1001
 
 # Set correct permissions
-RUN chown -R appuser:appuser /usr/share/nginx/html && \
-    chown -R appuser:appuser /var/cache/nginx && \
-    chown -R appuser:appuser /var/log/nginx && \
-    chmod -R 755 /var/cache/nginx && \
-    chmod -R 755 /var/log/nginx
+RUN chown -R appuser:appuser /app
 
 # Switch to non-root user
 USER appuser
@@ -64,5 +60,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # Expose port
 EXPOSE 80
 
-# Start nginx
-CMD ["nginx", "-g", "daemon off;"] 
+# Start simple HTTP server to serve static files
+CMD ["npx", "http-server", "-p", "80", "-d", "/app/dist", "--gzip"] 
