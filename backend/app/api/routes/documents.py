@@ -260,7 +260,8 @@ async def delete_file(
 @router.get("/download/{job_id}")
 async def download_result(
     job_id: str,
-    format: str = "json"
+    format: str = "json",
+    redis_service: RedisService = Depends(get_redis)
 ):
     """
     Download processed document result with full structure.
@@ -274,13 +275,12 @@ async def download_result(
             detail="Invalid job ID format"
         )
     
-    if job_id not in job_store:
+    job_data = redis_service.get_job(job_id)
+    if job_data is None:
         raise HTTPException(
             status_code=404,
             detail="Job not found"
         )
-    
-    job_data = job_store[job_id]
     
     if job_data["status"] != JobStatus.COMPLETED.value:
         raise HTTPException(
