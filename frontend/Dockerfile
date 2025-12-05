@@ -64,5 +64,5 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 # Expose port
 EXPOSE 80
 
-# Start simple HTTP server to serve static files
-CMD ["npx", "http-server", "/app/dist", "-p", "80", "--gzip"] 
+# Start serve with SPA support (redirects all routes to index.html)
+CMD ["npx", "serve", "-s", "/app/dist", "-l", "80"] 
