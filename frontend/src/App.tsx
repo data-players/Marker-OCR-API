@@ -12,12 +12,13 @@ import NotFound from '@/pages/NotFound'
 function App() {
   const [modelsReady, setModelsReady] = useState(false)
   const [isCheckingModels, setIsCheckingModels] = useState(true)
+  const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
   useEffect(() => {
     // Check initial model status
     const checkInitialModelStatus = async () => {
       try {
-        const response = await fetch('http://localhost:8000/api/v1/health/models')
+        const response = await fetch(`${API_BASE_URL}/api/v1/health/models`)
         const status = await response.json()
         
         if (status.models_loaded && status.status === 'ready') {

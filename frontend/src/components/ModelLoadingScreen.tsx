@@ -29,13 +29,14 @@ const ModelLoadingScreen: React.FC<ModelLoadingScreenProps> = ({ onModelsReady }
     models_loaded: false
   })
   const [isRetrying, setIsRetrying] = useState(false)
+  const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
   useEffect(() => {
     let interval: NodeJS.Timeout
 
     const checkModelStatus = async () => {
       try {
-        const response = await fetch('http://localhost:8000/api/v1/health/models')
+        const response = await fetch(`${API_BASE_URL}/api/v1/health/models`)
         const status = await response.json()
         setModelStatus(status)
 
@@ -68,7 +69,7 @@ const ModelLoadingScreen: React.FC<ModelLoadingScreenProps> = ({ onModelsReady }
   const handleRetry = async () => {
     setIsRetrying(true)
     try {
-      await fetch('http://localhost:8000/api/v1/health/models/reload', { 
+      await fetch(`${API_BASE_URL}/api/v1/health/models/reload`, { 
         method: 'POST' 
       })
       setModelStatus({
