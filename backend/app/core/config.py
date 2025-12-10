@@ -3,7 +3,7 @@ Configuration management using Pydantic Settings.
 Centralized configuration for the entire application.
 """
 
-from typing import List
+from typing import Optional, List
 from pydantic import Field
 from pydantic_settings import BaseSettings
 
@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = Field(default="INFO", description="Logging level")
     log_format: str = Field(default="json", description="Log format (json or text)")
+    
+    # Security
+    api_key: Optional[str] = Field(default=None, description="API key for authentication")
     
     class Config:
         env_file = ".env"
