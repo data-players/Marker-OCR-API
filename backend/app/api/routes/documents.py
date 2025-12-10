@@ -360,8 +360,10 @@ async def process_document_background(
         # Convert to ProcessingResult for validation
         processing_result = ProcessingResult.from_marker_result(result)
         
+        # Serialize to pure Python dict for Redis storage
+        # Use mode='json' to ensure all nested objects are properly serialized
         redis_service.update_job(job_id, {
-            "result": processing_result.model_dump() if hasattr(processing_result, 'model_dump') else processing_result,
+            "result": processing_result.model_dump(mode='json'),
             "progress": 90.0,
             "updated_at": time.time()
         })

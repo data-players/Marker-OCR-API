@@ -61,6 +61,52 @@ def convert_pil_images(data):
         return data
 
 
+def serialize_pydantic_objects(data):
+    """
+    Recursively convert Pydantic objects and other non-serializable objects to pure Python dictionaries.
+    This ensures compatibility with JSON serialization for Redis storage.
+    """
+    # Handle Pydantic BaseModel objects
+    if hasattr(data, 'model_dump'):
+        try:
+            return serialize_pydantic_objects(data.model_dump())
+        except Exception:
+            pass
+    
+    # Handle dict_like objects with __dict__
+    if hasattr(data, '__dict__') and not isinstance(data, (str, int, float, bool, type(None))):
+        try:
+            obj_dict = {}
+            for key, value in data.__dict__.items():
+                if not key.startswith('_'):  # Skip private attributes
+                    obj_dict[key] = serialize_pydantic_objects(value)
+            return obj_dict
+        except Exception:
+            pass
+    
+    # Handle PIL Images
+    if hasattr(data, 'size'):
+        return convert_pil_images(data)
+    
+    # Handle dictionaries
+    if isinstance(data, dict):
+        return {k: serialize_pydantic_objects(v) for k, v in data.items()}
+    
+    # Handle lists and tuples
+    if isinstance(data, (list, tuple)):
+        return [serialize_pydantic_objects(item) for item in data]
+    
+    # Handle basic types and None
+    if isinstance(data, (str, int, float, bool, type(None))):
+        return data
+    
+    # For anything else, try to convert to string as fallback
+    try:
+        return str(data)
+    except Exception:
+        return None
+
+
 def create_rich_structure_from_markdown(markdown_text: str, images: dict, metadata: any) -> dict:
     """
     Create a rich document structure similar to datalab.to from Marker's markdown output.
@@ -344,13 +390,14 @@ class DocumentParserService:
                     
                     json_rendered = json_converter(file_path)
                     
-                    # Extraire la structure JSON native
+                    # Extraire la structure JSON native et la sérialiser en dictionnaire pur
                     if hasattr(json_rendered, 'children') and hasattr(json_rendered, 'block_type'):
-                        rich_structure = {
+                        # Sérialiser l'objet Marker en dictionnaire Python pur pour Redis
+                        rich_structure = serialize_pydantic_objects({
                             "block_type": json_rendered.block_type,
                             "id": getattr(json_rendered, 'id', '/document/0'),
                             "children": json_rendered.children,
-                        }
+                        })
                         logger.info(f"✅ JSON native: {json_rendered.block_type} with {len(json_rendered.children) if hasattr(json_rendered, 'children') else 0} children")
                     else:
                         rich_structure = None
@@ -383,9 +430,9 @@ class DocumentParserService:
                     metadata = getattr(json_rendered, 'metadata', getattr(markdown_rendered, 'metadata', {}))
                     images = getattr(json_rendered, 'images', getattr(markdown_rendered, 'images', {}))
                     
-                    # 🔧 Convertir les objets PIL Image pour la sérialisation
-                    images = convert_pil_images(images)
-                    metadata = convert_pil_images(metadata)
+                    # 🔧 Convertir tous les objets non-sérialisables pour Redis
+                    images = serialize_pydantic_objects(images)
+                    metadata = serialize_pydantic_objects(metadata)
                     
                     logger.info("🎉 Successfully generated BOTH formats!")
                     
@@ -414,6 +461,10 @@ class DocumentParserService:
                         converter = PdfConverter(artifact_dict=self.models_dict)
                         rendered = converter(file_path)
                         text, metadata, images = text_from_rendered(rendered)
+                        
+                        # Sérialiser les objets non-sérialisables
+                        metadata = serialize_pydantic_objects(metadata)
+                        images = serialize_pydantic_objects(images)
                         rich_structure = create_rich_structure_from_markdown(text, images, metadata)
                         
                         result = {

@@ -112,6 +112,13 @@ frontend/
 - Maintain examples with current command syntax
 - Include performance metrics and optimization tips
 
+### Documentation Constraints
+- **NO intermediate/work-in-progress documentation files** (e.g., HOTFIX_*.md, FIX_*.md, SOLUTION_*.md)
+- **NO summary or status report files** unless explicitly requested by the user
+- **Focus on code and essential documentation only**: README, guides, code comments
+- When fixing issues: **code changes only**, no extra documentation unless asked
+- If documentation is needed: update existing files (README, guides) instead of creating new ones
+
 ## Update Policy
 
 **IMPORTANT**: This .cursorrules file MUST be updated whenever:
