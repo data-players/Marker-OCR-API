@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { 
   Clock, 
   CheckCircle, 
@@ -27,12 +27,20 @@ const JobStatus: React.FC<JobStatusProps> = ({ jobId, onComplete }) => {
   const [previewFormat, setPreviewFormat] = useState<'markdown' | 'json'>('markdown')
   const [copiedMarkdown, setCopiedMarkdown] = useState(false)
   const [copiedJson, setCopiedJson] = useState(false)
+  const consecutiveErrorsRef = useRef(0)
+  const [pollingWarning, setPollingWarning] = useState<string | null>(null)
 
   useEffect(() => {
     const pollJobStatus = async () => {
       try {
         const status = await apiService.getJobStatus(jobId)
         setJobStatus(status)
+        
+        // Reset error counter on successful poll
+        if (consecutiveErrorsRef.current > 0) {
+          consecutiveErrorsRef.current = 0
+          setPollingWarning(null)
+        }
         
         // Track when processing starts for the first time
         if (status.status === 'processing' && !processingStartTime) {
@@ -54,8 +62,29 @@ const JobStatus: React.FC<JobStatusProps> = ({ jobId, onComplete }) => {
           setLoading(false)
         }
       } catch (err: any) {
-        setError(err.response?.data?.detail || err.message)
-        setLoading(false)
+        // Increment consecutive error counter
+        consecutiveErrorsRef.current += 1
+        const newErrorCount = consecutiveErrorsRef.current
+        
+        console.warn(`Failed to check job status (attempt ${newErrorCount}):`, err.message)
+        
+        // Show warning after 3 consecutive errors, but don't block the UI
+        if (newErrorCount === 3) {
+          setPollingWarning('Temporary connection issues, retrying...')
+          
+          // Clear warning after showing it for a bit
+          setTimeout(() => {
+            if (consecutiveErrorsRef.current < 10) {
+              setPollingWarning(null)
+            }
+          }, 5000)
+        }
+        
+        // Only treat as fatal error after 10 consecutive failures
+        if (newErrorCount >= 10) {
+          setError(err.response?.data?.detail || err.message || 'Connection error')
+          setLoading(false)
+        }
       }
     }
 
@@ -197,16 +226,25 @@ const JobStatus: React.FC<JobStatusProps> = ({ jobId, onComplete }) => {
   }
 
   return (
-    <div className={`border rounded-lg p-6 ${getStatusColor()}`}>
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center">
-          {getStatusIcon()}
-          <div className="ml-3">
-            <h3 className="font-medium text-gray-900">Processing Status</h3>
-            <p className="text-sm text-gray-600">{getStatusText()}</p>
+    <>
+      {/* Non-blocking warning for temporary polling issues */}
+      {pollingWarning && (
+        <div className="mb-3 bg-yellow-50 border border-yellow-200 rounded-lg p-3 flex items-center animate-pulse">
+          <Loader className="h-4 w-4 text-yellow-600 mr-2 animate-spin" />
+          <span className="text-sm text-yellow-800">{pollingWarning}</span>
+        </div>
+      )}
+      
+      <div className={`border rounded-lg p-6 ${getStatusColor()}`}>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center">
+            {getStatusIcon()}
+            <div className="ml-3">
+              <h3 className="font-medium text-gray-900">Processing Status</h3>
+              <p className="text-sm text-gray-600">{getStatusText()}</p>
+            </div>
           </div>
         </div>
-      </div>
 
       {jobStatus?.progress !== undefined && (
         <div className="mb-4">
@@ -336,6 +374,7 @@ const JobStatus: React.FC<JobStatusProps> = ({ jobId, onComplete }) => {
         )}
       </div>
     </div>
+    </>
   )
 }
 
