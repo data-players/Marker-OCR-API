@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  # Backend test service (FullStack - with full Marker ML dependencies)
+  backend-test-FullStack:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.test-FullStack
+    volumes:
+      - ./backend:/app:ro  # Read-only to prevent accidental modifications
+      - ./shared/uploads:/app/uploads
+      - ./shared/outputs:/app/outputs
+      - ./tests:/app/../tests:ro  # Mount tests directory (includes backend/file-to-parse)
+    environment:
+      - PYTHONPATH=/app
+      - ENVIRONMENT=test
+      - LOG_LEVEL=DEBUG
+      - MARKER_DEBUG_LOGS=1  # Enable Marker log debugging
+      - UPLOAD_DIR=/app/uploads
+      - OUTPUT_DIR=/app/outputs
+      - API_BASE_URL=${API_BASE_URL:-http://host.docker.internal:8000}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - marker-test-network
+    # Override command to run custom test script
+    command: >
+      bash -c "
+        echo '========================================';
+        echo 'Marker FullStack Test Environment';
+        echo '========================================';
+        echo '';
+        echo 'Available commands:';
+        echo '  python3 /app/../tests/local/test_marker_logs.py  - Test Marker logs with exemple_facture.pdf';
+        echo '  pytest tests/backend/FullStack/ -v               - Run FullStack backend tests';
+        echo '  pytest tests/backend/modelFree/ -v               - Run modelFree backend tests';
+        echo '  bash                                               - Interactive shell';
+        echo '';
+        echo 'Waiting for commands...';
+        tail -f /dev/null
+      "
+
+  # Redis service for job status tracking (optional, for API-like testing)
+  redis-test:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - marker-test-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+networks:
+  marker-test-network:
+    driver: bridge
+
+volumes:
+  test_uploads:
+  test_outputs:
+
+

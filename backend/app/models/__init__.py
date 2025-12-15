@@ -3,7 +3,6 @@ Pydantic models for request and response validation.
 """
 
 from .request_models import (
-    ProcessingOptions,
     OutputFormat,
     DocumentProcessRequest,
     FileUploadRequest,
@@ -27,7 +26,6 @@ from .response_models import (
 
 __all__ = [
     # Request models
-    "ProcessingOptions",
     "OutputFormat", 
     "DocumentProcessRequest",
     "FileUploadRequest",

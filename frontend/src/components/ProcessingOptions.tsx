@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Settings, Zap, Target, Eye, Image, Table, Globe } from 'lucide-react'
+import { Settings, Image, FileText, Globe } from 'lucide-react'
 import { ProcessingOptions as ProcessingOptionsType } from '@/services/api'
 
 interface ProcessingOptionsProps {
@@ -12,11 +12,10 @@ const ProcessingOptions: React.FC<ProcessingOptionsProps> = ({
   disabled = false 
 }) => {
   const [options, setOptions] = useState<Partial<ProcessingOptionsType>>({
-    processing_option: 'accurate',
-    output_format: 'both',
+    output_format: 'markdown',
     force_ocr: false,
-    extract_images: true,
-    extract_tables: true,
+    extract_images: false,
+    paginate_output: false,
     language: 'auto',
   })
 
@@ -37,77 +36,6 @@ const ProcessingOptions: React.FC<ProcessingOptionsProps> = ({
       </div>
 
       <div className="space-y-6">
-        {/* Processing Mode */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-3">
-            Processing Mode
-          </label>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <button
-              onClick={() => updateOption('processing_option', 'fast')}
-              disabled={disabled}
-              className={`
-                p-4 border-2 rounded-lg text-left transition-colors
-                ${options.processing_option === 'fast' 
-                  ? 'border-blue-500 bg-blue-50' 
-                  : 'border-gray-200 hover:border-gray-300'
-                }
-                ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
-              `}
-            >
-              <div className="flex items-center mb-2">
-                <Zap className="h-5 w-5 text-blue-500 mr-2" />
-                <span className="font-medium">Fast</span>
-              </div>
-              <p className="text-sm text-gray-600">
-                Quick processing, lower accuracy
-              </p>
-            </button>
-
-            <button
-              onClick={() => updateOption('processing_option', 'accurate')}
-              disabled={disabled}
-              className={`
-                p-4 border-2 rounded-lg text-left transition-colors
-                ${options.processing_option === 'accurate' 
-                  ? 'border-blue-500 bg-blue-50' 
-                  : 'border-gray-200 hover:border-gray-300'
-                }
-                ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
-              `}
-            >
-              <div className="flex items-center mb-2">
-                <Target className="h-5 w-5 text-green-500 mr-2" />
-                <span className="font-medium">Accurate</span>
-              </div>
-              <p className="text-sm text-gray-600">
-                Best quality, slower processing
-              </p>
-            </button>
-
-            <button
-              onClick={() => updateOption('processing_option', 'ocr_only')}
-              disabled={disabled}
-              className={`
-                p-4 border-2 rounded-lg text-left transition-colors
-                ${options.processing_option === 'ocr_only' 
-                  ? 'border-blue-500 bg-blue-50' 
-                  : 'border-gray-200 hover:border-gray-300'
-                }
-                ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
-              `}
-            >
-              <div className="flex items-center mb-2">
-                <Eye className="h-5 w-5 text-purple-500 mr-2" />
-                <span className="font-medium">OCR Only</span>
-              </div>
-              <p className="text-sm text-gray-600">
-                Text extraction only
-              </p>
-            </button>
-          </div>
-        </div>
-
         {/* Output Format */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-3">
@@ -175,14 +103,14 @@ const ProcessingOptions: React.FC<ProcessingOptionsProps> = ({
             <label className="flex items-center">
               <input
                 type="checkbox"
-                checked={options.extract_tables}
-                onChange={(e) => updateOption('extract_tables', e.target.checked)}
+                checked={options.paginate_output}
+                onChange={(e) => updateOption('paginate_output', e.target.checked)}
                 disabled={disabled}
                 className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
               />
               <span className="ml-3 text-sm text-gray-700 flex items-center">
-                <Table className="h-4 w-4 mr-1" />
-                Extract tables
+                <FileText className="h-4 w-4 mr-1" />
+                Add page separators in output
               </span>
             </label>
           </div>

@@ -22,11 +22,10 @@ const ProcessDocument: React.FC = () => {
   const [state, setState] = useState<ProcessingState>({
     step: 'upload',
     processingOptions: {
-      processing_option: 'accurate',
-      output_format: 'both',
+      output_format: 'markdown',
       force_ocr: false,
-      extract_images: true,
-      extract_tables: true,
+      extract_images: false,
+      paginate_output: false,
       language: 'auto',
     },
     isProcessing: false,
@@ -80,11 +79,10 @@ const ProcessDocument: React.FC = () => {
     setState({
       step: 'upload',
       processingOptions: {
-        processing_option: 'accurate',
         output_format: 'both',
         force_ocr: false,
         extract_images: true,
-        extract_tables: true,
+        paginate_output: false,
         language: 'auto',
       },
       isProcessing: false,

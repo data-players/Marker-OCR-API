@@ -41,6 +41,71 @@ class FileHandlerService(LoggerMixin):
             output_dir=str(self.output_dir)
         )
     
+    async def download_file_from_url(
+        self,
+        url: str,
+        validate: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Download file from URL and save it.
+        
+        Args:
+            url: URL to download file from
+            validate: Whether to perform validation
+            
+        Returns:
+            Dictionary with file information
+        """
+        import httpx
+        from urllib.parse import urlparse
+        
+        try:
+            # Validate URL
+            parsed_url = urlparse(url)
+            if not parsed_url.scheme or not parsed_url.netloc:
+                raise ValidationError(f"Invalid URL format: {url}")
+            
+            if parsed_url.scheme not in ['http', 'https']:
+                raise ValidationError(f"Unsupported URL scheme: {parsed_url.scheme}")
+            
+            # Extract filename from URL or use default
+            filename = parsed_url.path.split('/')[-1] or 'document.pdf'
+            if not filename or '.' not in filename:
+                # Try to get filename from Content-Disposition header or use default
+                filename = 'document.pdf'
+            
+            # Download file with timeout
+            async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+                response = await client.get(url)
+                response.raise_for_status()
+                
+                # Check content type
+                content_type = response.headers.get('content-type', '')
+                if 'application/pdf' not in content_type and not filename.endswith('.pdf'):
+                    # Try to determine from Content-Disposition header
+                    content_disposition = response.headers.get('content-disposition', '')
+                    if 'filename=' in content_disposition:
+                        filename = content_disposition.split('filename=')[1].strip('"\'')
+                
+                file_content = response.content
+                
+                # Validate file size
+                if len(file_content) > settings.max_file_size:
+                    raise FileSizeExceededError(
+                        len(file_content),
+                        settings.max_file_size
+                    )
+                
+                # Save file using existing method
+                return await self.save_uploaded_file(file_content, filename, validate)
+                
+        except httpx.HTTPError as e:
+            self.log_error(e, "URL download", url=url)
+            raise FileProcessingError(f"Failed to download file from URL: {str(e)}")
+        except Exception as e:
+            self.log_error(e, "URL download", url=url)
+            raise FileProcessingError(f"Failed to download file from URL: {str(e)}")
+    
     async def save_uploaded_file(
         self,
         file_content: bytes,

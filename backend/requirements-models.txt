@@ -1,0 +1,26 @@
+# ============================================================================
+# NIVEAU 3 : MODÈLES ML LOURDS
+# ============================================================================
+# Ce fichier contient UNIQUEMENT les dépendances ML lourdes (modèles).
+# 
+# ORDRE D'INSTALLATION DANS LES DOCKERFILES :
+#   1. requirements-models.txt (NIVEAU 3 - installé EN PREMIER pour optimiser le cache)
+#   2. requirements-minimal.txt (NIVEAU 1 - installé ENSUITE)
+#   3. requirements-base.txt (NIVEAU 2 - installé EN DERNIER)
+#
+# UTILISATION :
+#   - Tests : requirements-minimal.txt uniquement (sans modèles ML)
+#   - Dev/Prod : requirements-models.txt + requirements-minimal.txt + requirements-base.txt
+#
+# OPTIMISATION CACHE DOCKER :
+#   Les modèles ML changent rarement, donc cette couche est mise en cache
+#   séparément. Si seulement requirements-base.txt change, Docker réutilise
+#   la couche des modèles sans les re-télécharger.
+# ============================================================================
+
+# Core dependencies for marker (heavy ML models)
+marker-pdf==1.8.2
+torch>=2.0.0
+torchvision
+transformers
+Pillow>=9.5.0

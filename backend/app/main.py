@@ -307,12 +307,23 @@ async def api_info():
 
 
 if __name__ == "__main__":
-    import uvicorn
-    
-    uvicorn.run(
-        "app.main:app",
-        host=settings.host,
-        port=settings.port,
-        reload=settings.debug,
-        log_level=settings.log_level.lower()
-    ) 
+    # Use Hypercorn for HTTP/2 support in production, uvicorn for development
+    if settings.environment == "production":
+        import hypercorn.asyncio
+        from hypercorn.config import Config
+        
+        config = Config()
+        config.bind = [f"{settings.host}:{settings.port}"]
+        config.loglevel = settings.log_level.lower()
+        
+        hypercorn.asyncio.serve(app, config)
+    else:
+        import uvicorn
+        
+        uvicorn.run(
+            "app.main:app",
+            host=settings.host,
+            port=settings.port,
+            reload=settings.debug,
+            log_level=settings.log_level.lower()
+        ) 

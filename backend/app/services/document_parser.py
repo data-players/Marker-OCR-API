@@ -6,12 +6,14 @@ Handles PDF to JSON/Markdown conversion with different processing options.
 import asyncio
 import json
 import time
-import os
 import gc
+import sys
+import io
+import re
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple, List
 from concurrent.futures import ThreadPoolExecutor
-import re
+from contextlib import contextmanager
 
 try:
     from marker.converters.pdf import PdfConverter
@@ -39,20 +41,161 @@ except ImportError:
 
 from app.core.logger import get_logger
 from app.core.logger import LoggerMixin
-from app.models.enums import ProcessingOptions, OutputFormat
+from app.models.enums import OutputFormat
+from app.services.marker_log_handler import setup_marker_log_interception, remove_marker_log_interception
 
 logger = get_logger(__name__)
 
 
+@contextmanager
+def capture_tqdm_progress(step_callback, step_name=None, loop=None):
+    """
+    Context manager to capture tqdm progress bars from stdout/stderr
+    and convert them to progress steps.
+    
+    Marker uses tqdm to show progress bars like:
+    - "Recognizing layout: 100%|██████████| 1/1 [00:04<00:00,  4.95s/it]"
+    - "Running OCR Error Detection: 100%|██████████| 1/1 [00:00<00:00,  1.98it/s]"
+    - "Recognizing tables: 100%|██████████| 1/1 [00:06<00:00,  6.87s/it]"
+    
+    These don't go through Python logging, so we intercept stdout/stderr.
+    ALL steps executed by Marker are captured and displayed, regardless of options.
+    """
+    # Mapping of tqdm progress messages to user-friendly step names
+    # All Marker steps are captured - Marker may execute table recognition even if not formatted
+    progress_patterns = [
+        (r'Recognizing layout', '🔍 Recognizing document layout'),
+        (r'Running OCR Error Detection', '🔍 Running OCR error detection'),
+        (r'Detecting bboxes', '📦 Detecting bounding boxes'),
+        (r'Recognizing tables', '📊 Recognizing tables'),  # Always captured - Marker always runs this
+        (r'Extracting text', '📝 Extracting text'),
+        (r'Processing pages', '📄 Processing pages'),
+    ]
+    
+    seen_progress = set()
+    step_start_times = {}
+    original_stdout = sys.stdout
+    original_stderr = sys.stderr
+    
+    class ProgressInterceptor:
+        """Intercept stdout/stderr to capture tqdm progress."""
+        def __init__(self, stream, is_stderr=False):
+            self.stream = stream
+            self.is_stderr = is_stderr
+        
+        def write(self, text):
+            """Intercept writes and parse for tqdm progress."""
+            # Write to original stream first
+            if text:
+                self.stream.write(text)
+                self.stream.flush()
+                
+                # Parse for tqdm progress patterns
+                if step_callback and loop:
+                    import time
+                    # Debug: Log ALL captured text to understand what Marker outputs
+                    if text.strip() and len(text.strip()) > 5:  # Ignore empty lines and very short strings
+                        logger.debug(f"🔍 [tqdm_capture] Text: {text.strip()[:150]}")
+                    
+                    for pattern, step_description in progress_patterns:
+                        if re.search(pattern, text, re.IGNORECASE):
+                            logger.info(f"✅ [tqdm_capture] Pattern matched: '{pattern}' -> '{step_description}'")
+                            # Extract progress info (e.g., "100%" or completion status)
+                            progress_match = re.search(r'(\d+)%|(\d+)/(\d+)', text)
+                            if progress_match:
+                                logger.info(f"📊 [tqdm_capture] Progress found: {progress_match.group()}")
+                                step_key = f"{step_description}_{pattern}"
+                                logger.info(f"🔑 [tqdm_capture] step_key={step_key}, in seen_progress={step_key in seen_progress}, seen_progress={seen_progress}")
+                                if step_key not in seen_progress:
+                                    seen_progress.add(step_key)
+                                    logger.info(f"🔔 [tqdm_capture] First time seeing: {step_description}, calling callback")
+                                    # Start step
+                                    step_start_times[step_description] = time.time()
+                                    try:
+                                        # Call callback (handles both sync and async)
+                                        if step_callback is None:
+                                            logger.warning(f"⚠️ [tqdm_capture] step_callback is None!")
+                                        elif asyncio.iscoroutinefunction(step_callback):
+                                            logger.info(f"📞 [tqdm_capture] Calling ASYNC callback for sub-step {step_description}")
+                                            asyncio.run_coroutine_threadsafe(
+                                                step_callback("📄 OCR Processing", "sub_step", step_description),
+                                                loop
+                                            )
+                                        else:
+                                            logger.info(f"📞 [tqdm_capture] Calling SYNC callback for sub-step {step_description}")
+                                            step_callback("📄 OCR Processing", "sub_step", step_description)
+                                    except Exception as e:
+                                        logger.warning(f"Failed to call step callback: {e}")
+                                else:
+                                    # Check if step is completing (100% or final count)
+                                    if re.search(r'100%|(\d+)/(\d+)\s+\[.*\]', text):
+                                        if step_description in step_start_times:
+                                            completion_time = time.time()
+                                            try:
+                                                # Call callback to complete the sub-step
+                                                if asyncio.iscoroutinefunction(step_callback):
+                                                    asyncio.run_coroutine_threadsafe(
+                                                        step_callback("📄 OCR Processing", "sub_step", (step_description, completion_time)),
+                                                        loop
+                                                    )
+                                                else:
+                                                    step_callback("📄 OCR Processing", "sub_step", (step_description, completion_time))
+                                            except Exception as e:
+                                                logger.warning(f"Failed to call step callback: {e}")
+                            break
+            
+            return len(text) if text else 0
+        
+        def flush(self):
+            if hasattr(self.stream, 'flush'):
+                self.stream.flush()
+        
+        def __getattr__(self, name):
+            # Delegate all other attributes to the original stream
+            return getattr(self.stream, name)
+    
+    try:
+        # Replace stdout/stderr with interceptors
+        sys.stdout = ProgressInterceptor(original_stdout, is_stderr=False)
+        sys.stderr = ProgressInterceptor(original_stderr, is_stderr=True)
+        yield
+    finally:
+        # Restore original streams
+        sys.stdout = original_stdout
+        sys.stderr = original_stderr
+
+
 def convert_pil_images(data):
-    """Convert PIL Image objects to dictionaries for Pydantic serialization."""
+    """
+    Convert PIL Image objects to dictionaries for Redis serialization.
+    
+    NOTE: This function is REQUIRED because Marker returns PIL Image objects
+    that are not JSON-serializable. Redis requires pure Python dictionaries.
+    Marker does NOT handle this conversion natively.
+    """
     if hasattr(data, 'size'):  # PIL Image object
-        return {
-            "width": data.size[0] if hasattr(data, 'size') else None,
-            "height": data.size[1] if hasattr(data, 'size') else None,
-            "format": getattr(data, 'format', 'unknown'),
-            "mode": getattr(data, 'mode', 'unknown')
-        }
+        try:
+            # Extract width and height from size (can be tuple, list, or indexable)
+            size = data.size
+            if isinstance(size, (tuple, list)) and len(size) >= 2:
+                width = size[0]
+                height = size[1]
+            elif hasattr(size, '__getitem__') and hasattr(size, '__len__') and len(size) >= 2:
+                width = size[0]
+                height = size[1]
+            else:
+                # If size is not indexable, raise exception to fall through to __dict__ handling
+                raise ValueError("Size is not indexable")
+            
+            return {
+                "width": width,
+                "height": height,
+                "format": getattr(data, 'format', 'unknown'),
+                "mode": getattr(data, 'mode', 'unknown')
+            }
+        except (AttributeError, TypeError, IndexError, ValueError):
+            # If we can't extract size, raise exception to fall through to __dict__ handling
+            raise
     elif isinstance(data, dict):
         return {k: convert_pil_images(v) for k, v in data.items()}
     elif isinstance(data, list):
@@ -64,8 +207,18 @@ def convert_pil_images(data):
 def serialize_pydantic_objects(data):
     """
     Recursively convert Pydantic objects and other non-serializable objects to pure Python dictionaries.
-    This ensures compatibility with JSON serialization for Redis storage.
+    
+    NOTE: This function is REQUIRED because:
+    - Marker returns Pydantic BaseModel objects that must be serialized for Redis
+    - Marker returns PIL Image objects that need conversion
+    - Redis requires pure JSON-serializable Python types
+    
+    Marker does NOT handle Redis serialization - this is application-specific logic.
     """
+    # Handle basic types and None first (fast path)
+    if isinstance(data, (str, int, float, bool, type(None))):
+        return data
+    
     # Handle Pydantic BaseModel objects
     if hasattr(data, 'model_dump'):
         try:
@@ -73,8 +226,26 @@ def serialize_pydantic_objects(data):
         except Exception:
             pass
     
+    # Handle PIL Images SECOND (before __dict__ check, as PIL Images also have __dict__)
+    # Check for PIL Image by looking for 'size' attribute and typical PIL attributes
+    # This must come before __dict__ check to avoid treating PIL Images as generic objects
+    if hasattr(data, 'size') and hasattr(data, 'format') and hasattr(data, 'mode'):
+        # Try to convert as PIL Image - convert_pil_images handles the conversion logic
+        try:
+            result = convert_pil_images(data)
+            # Only return if we got a proper dict with width/height, not the original data object
+            if isinstance(result, dict) and 'width' in result:
+                return result
+        except Exception:
+            # If conversion fails, fall through to __dict__ handling
+            pass
+    
     # Handle dict_like objects with __dict__
-    if hasattr(data, '__dict__') and not isinstance(data, (str, int, float, bool, type(None))):
+    # This must come AFTER PIL Image check
+    # Exclude objects that look like PIL Images (have size, format, mode)
+    if (hasattr(data, '__dict__') and 
+        not isinstance(data, (str, int, float, bool, type(None))) and
+        not (hasattr(data, 'size') and hasattr(data, 'format') and hasattr(data, 'mode'))):
         try:
             obj_dict = {}
             for key, value in data.__dict__.items():
@@ -84,10 +255,6 @@ def serialize_pydantic_objects(data):
         except Exception:
             pass
     
-    # Handle PIL Images
-    if hasattr(data, 'size'):
-        return convert_pil_images(data)
-    
     # Handle dictionaries
     if isinstance(data, dict):
         return {k: serialize_pydantic_objects(v) for k, v in data.items()}
@@ -96,150 +263,10 @@ def serialize_pydantic_objects(data):
     if isinstance(data, (list, tuple)):
         return [serialize_pydantic_objects(item) for item in data]
     
-    # Handle basic types and None
-    if isinstance(data, (str, int, float, bool, type(None))):
-        return data
-    
     # For anything else, try to convert to string as fallback
     try:
         return str(data)
     except Exception:
-        return None
-
-
-def create_rich_structure_from_markdown(markdown_text: str, images: dict, metadata: any) -> dict:
-    """
-    Create a rich document structure similar to datalab.to from Marker's markdown output.
-    This analyzes the markdown and creates blocks with types and hierarchy.
-    """
-    try:
-        blocks = []
-        block_id = 0
-        
-        # Convert PIL Images to dictionary format for processing
-        processed_images = {}
-        if isinstance(images, dict):
-            for key, value in images.items():
-                if hasattr(value, 'size'):  # PIL Image object
-                    processed_images[key] = {
-                        "width": value.size[0] if hasattr(value, 'size') else 100,
-                        "height": value.size[1] if hasattr(value, 'size') else 100,
-                        "format": getattr(value, 'format', 'unknown')
-                    }
-                else:
-                    processed_images[key] = value
-        
-        # Split markdown into lines and analyze
-        lines = markdown_text.split('\n')
-        current_section_hierarchy = {}
-        
-        for i, line in enumerate(lines):
-            line = line.strip()
-            if not line:
-                continue
-                
-            block_id += 1
-            
-            # Detect different block types
-            if line.startswith('![]('):
-                # Image block
-                image_match = re.search(r'!\[\]\(([^)]+)\)', line)
-                if image_match:
-                    image_name = image_match.group(1)
-                    image_info = processed_images.get(image_name, {})
-                    blocks.append({
-                        "block_type": "Picture",
-                        "id": f"/page/0/Picture/{block_id}",
-                        "html": f'<img src="{image_name}" />',
-                        "images": {image_name: image_info} if image_info else {},
-                        "bbox": [0, 0, image_info.get('width', 100), image_info.get('height', 100)] if image_info else [0, 0, 100, 100],
-                        "section_hierarchy": current_section_hierarchy.copy()
-                    })
-                    
-            elif line.startswith('## '):
-                # Section header
-                header_text = line[3:].strip()
-                current_section_hierarchy['2'] = f"/page/0/SectionHeader/{block_id}"
-                blocks.append({
-                    "block_type": "SectionHeader", 
-                    "id": f"/page/0/SectionHeader/{block_id}",
-                    "html": f"<h2>{header_text}</h2>",
-                    "images": {},
-                    "bbox": [0, 0, 500, 30],
-                    "section_hierarchy": current_section_hierarchy.copy()
-                })
-                
-            elif line.startswith('# '):
-                # Main header
-                header_text = line[2:].strip()
-                current_section_hierarchy['1'] = f"/page/0/Header/{block_id}"
-                blocks.append({
-                    "block_type": "Header",
-                    "id": f"/page/0/Header/{block_id}",
-                    "html": f"<h1>{header_text}</h1>", 
-                    "images": {},
-                    "bbox": [0, 0, 500, 40],
-                    "section_hierarchy": current_section_hierarchy.copy()
-                })
-                
-            elif line.startswith('|') and '|' in line[1:]:
-                # Table - collect consecutive table lines
-                table_lines = [line]
-                j = i + 1
-                while j < len(lines) and lines[j].strip().startswith('|'):
-                    table_lines.append(lines[j].strip())
-                    j += 1
-                
-                # Create table structure
-                table_html = "<table><tbody>"
-                for table_line in table_lines:
-                    if '---' in table_line:  # Skip separator line
-                        continue
-                    cells = [cell.strip() for cell in table_line.split('|')[1:-1]]
-                    table_html += "<tr>"
-                    for cell in cells:
-                        table_html += f"<td>{cell}</td>"
-                    table_html += "</tr>"
-                table_html += "</tbody></table>"
-                
-                blocks.append({
-                    "block_type": "Table",
-                    "id": f"/page/0/Table/{block_id}",
-                    "html": table_html,
-                    "images": {},
-                    "bbox": [0, 0, 600, len(table_lines) * 25],
-                    "section_hierarchy": current_section_hierarchy.copy(),
-                    "children": []  # Could add individual cells here
-                })
-                
-            elif line and not line.startswith('#') and not line.startswith('!['):
-                # Regular text block
-                blocks.append({
-                    "block_type": "Text",
-                    "id": f"/page/0/Text/{block_id}",
-                    "html": f'<p block-type="Text">{line}</p>',
-                    "images": {},
-                    "bbox": [0, 0, 500, 20],
-                    "section_hierarchy": current_section_hierarchy.copy()
-                })
-        
-        # Create document structure
-        document_structure = {
-            "block_type": "Document",
-            "children": [{
-                "block_type": "Page",
-                "id": "/page/0/Page/0",
-                "bbox": [0, 0, 596, 842],  # A4 size
-                "children": blocks,
-                "section_hierarchy": {}
-            }]
-        }
-        
-        logger.info(f"Created rich structure with {len(blocks)} blocks")
-        return document_structure
-        
-    except Exception as e:
-        logger.error(f"Failed to create rich structure: {str(e)}")
         return None
 
 
@@ -254,6 +281,48 @@ class DocumentParserService:
         self.models_ready = False
         self.model_load_error = None
         self.executor = ThreadPoolExecutor(max_workers=2)
+    
+    def _build_marker_config(
+        self,
+        output_format: str,
+        force_ocr: bool = False,
+        extract_images: bool = False,
+        paginate_output: bool = False,
+        language: Optional[str] = None
+    ) -> dict:
+        """
+        Build Marker configuration dictionary from processing options.
+        
+        Args:
+            output_format: "json" or "markdown"
+            force_ocr: Force OCR even if text is extractable
+            extract_images: Extract and include images
+            paginate_output: Add page separators in output
+            language: Document language hint
+            
+        Returns:
+            Configuration dictionary for Marker ConfigParser
+        """
+        config = {
+            "output_format": output_format,
+        }
+        
+        # OCR settings
+        if force_ocr:
+            config["force_ocr"] = True
+        
+        # Image extraction settings
+        config["disable_image_extraction"] = not extract_images
+        
+        # Pagination settings - adds page separators in markdown output
+        config["paginate_output"] = paginate_output
+        
+        # Language hint
+        if language and language != 'auto':
+            config["langs"] = [language]
+        
+        logger.debug(f"Marker config: {config}")
+        return config
     
     async def initialize_models(self, progress_callback=None) -> bool:
         """
@@ -341,122 +410,294 @@ class DocumentParserService:
     async def parse_document(
         self, 
         file_path: str, 
-        processing_options: ProcessingOptions, 
-        output_format: OutputFormat
+        output_format: OutputFormat,
+        force_ocr: bool = False,
+        extract_images: bool = False,
+        paginate_output: bool = False,
+        language: Optional[str] = None,
+        step_callback: Optional[callable] = None
     ) -> Dict[str, Any]:
         """
         Parse a document using Marker.
         
         Args:
             file_path: Path to the PDF file
-            processing_options: Processing options enum
-            output_format: Output format enum
+            output_format: Output format (json/markdown/both)
+            force_ocr: Force OCR even if text is extractable
+            extract_images: Extract and include images in the output
+            paginate_output: Add page separators in output
+            language: Document language hint (ISO 639-1 code, e.g., 'en', 'fr')
+            step_callback: Optional callback function(step_name, status) for tracking progress
             
         Returns:
             Dictionary containing parsed content and metadata
         """
+        # Helper to call step callback if provided
+        async def update_step(step_name: str, status: str, timestamp_or_substep = None):
+            if step_callback:
+                await step_callback(step_name, status, timestamp_or_substep)
+        
+        # Verify models are ready - no fallback, must be initialized at startup
         if not self.models_ready:
-            if not await self.initialize_models():
-                raise RuntimeError(f"Marker processing failed: {self.model_load_error}")
+            error_msg = "AI models are not loaded. Models must be initialized at startup."
+            if self.model_load_error:
+                error_msg += f" Error: {self.model_load_error}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
         
         start_time = time.time()
         
         try:
             logger.info(f"Starting document parsing: {file_path}")
-            
-            # Validate file exists
-            if not os.path.exists(file_path):
-                raise FileNotFoundError(f"File not found: {file_path}")
+            logger.info(f"🔍 parse_document received step_callback: {step_callback is not None}")
             
             # Process document in thread pool
             loop = asyncio.get_event_loop()
             
+            # Helper function to send step updates as sub-steps of "OCR Processing"
+            def send_step_update(sub_step_name: str, status: str, timestamp=None):
+                """Send sub-step update for OCR Processing in real-time."""
+                logger.info(f"🎯 send_step_update called: sub_step={sub_step_name}, status={status}, step_callback={step_callback is not None}, loop={loop is not None}")
+                if step_callback:
+                    try:
+                        # Convert status to sub-step format
+                        if status == "in_progress":
+                            # Start a new sub-step
+                            future = asyncio.run_coroutine_threadsafe(
+                                step_callback("📄 OCR Processing", "sub_step", sub_step_name),
+                                loop
+                            )
+                            # Wait briefly to ensure callback is processed
+                            try:
+                                future.result(timeout=0.5)
+                            except:
+                                pass  # Don't block on timeout
+                        elif status == "completed":
+                            # Complete the sub-step with timestamp
+                            future = asyncio.run_coroutine_threadsafe(
+                                step_callback("📄 OCR Processing", "sub_step", (sub_step_name, timestamp)),
+                                loop
+                            )
+                            # Wait briefly to ensure callback is processed
+                            try:
+                                future.result(timeout=0.5)
+                            except:
+                                pass  # Don't block on timeout
+                    except Exception as e:
+                        logger.warning(f"Failed to send step update: {e}")
+            
+            # Set up Marker log interception to capture internal execution details
+            marker_log_handler = None
+            if step_callback:
+                try:
+                    # Use step_callback directly - steps are now main steps, not sub-steps
+                    marker_log_handler = setup_marker_log_interception(
+                        step_callback=step_callback,
+                        step_name=None,
+                        event_loop=loop
+                    )
+                    logger.info("✅ Marker log interception enabled for detailed progress tracking")
+                except Exception as e:
+                    logger.warning(f"Failed to set up Marker log interception: {e}")
+            
             def _process_document():
                 try:
-                    # ✨ GÉNÉRATION DES DEUX FORMATS SIMULTANÉMENT ✨
-                    results = {}
+                    # Determine what to generate based on output_format parameter
+                    need_json = output_format in [OutputFormat.JSON, OutputFormat.BOTH]
+                    need_markdown = output_format in [OutputFormat.MARKDOWN, OutputFormat.BOTH]
                     
-                    # 1. Générer le format JSON natif (structure riche)
-                    logger.info("🎯 Generating native JSON format...")
-                    json_config = {"output_format": "json"}
-                    json_config_parser = ConfigParser(json_config)
+                    logger.info(f"Processing with options: format={output_format.value}, "
+                               f"force_ocr={force_ocr}, images={extract_images}, paginate_output={paginate_output}, lang={language}")
                     
-                    json_converter = PdfConverter(
-                        config=json_config_parser.generate_config_dict(),
-                        artifact_dict=self.models_dict,
-                        processor_list=json_config_parser.get_processors(),
-                        renderer=json_config_parser.get_renderer()
-                    )
+                    rich_structure = None
+                    markdown_content = ""
+                    json_rendered = None
+                    markdown_rendered = None
                     
-                    json_rendered = json_converter(file_path)
+                    # 1. Process document - Generate formats
+                    logger.info("🎯 Starting document processing...")
                     
-                    # Extraire la structure JSON native et la sérialiser en dictionnaire pur
-                    if hasattr(json_rendered, 'children') and hasattr(json_rendered, 'block_type'):
-                        # Sérialiser l'objet Marker en dictionnaire Python pur pour Redis
-                        rich_structure = serialize_pydantic_objects({
-                            "block_type": json_rendered.block_type,
-                            "id": getattr(json_rendered, 'id', '/document/0'),
-                            "children": json_rendered.children,
-                        })
-                        logger.info(f"✅ JSON native: {json_rendered.block_type} with {len(json_rendered.children) if hasattr(json_rendered, 'children') else 0} children")
-                    else:
-                        rich_structure = None
-                        logger.warning("⚠️ JSON structure not as expected")
+                    # Start OCR Processing step
+                    ocr_start_time = time.time()
+                    if step_callback:
+                        try:
+                            future = asyncio.run_coroutine_threadsafe(
+                                step_callback("📄 OCR Processing", "in_progress", ocr_start_time),
+                                loop
+                            )
+                            future.result(timeout=0.5)
+                        except:
+                            pass
                     
-                    # 2. Générer le format Markdown pour la preview
-                    logger.info("📝 Generating markdown format...")
-                    markdown_config = {"output_format": "markdown"}
-                    markdown_config_parser = ConfigParser(markdown_config)
+                    # Step: JSON format if requested
+                    if need_json:
+                        logger.info("🎯 Generating native JSON format...")
+                        
+                        json_config = self._build_marker_config(
+                            output_format="json",
+                            force_ocr=force_ocr,
+                            extract_images=extract_images,
+                            paginate_output=paginate_output,
+                            language=language
+                        )
+                        json_config_parser = ConfigParser(json_config)
+                        
+                        json_converter = PdfConverter(
+                            config=json_config_parser.generate_config_dict(),
+                            artifact_dict=self.models_dict,
+                            processor_list=json_config_parser.get_processors(),
+                            renderer=json_config_parser.get_renderer()
+                        )
+                        
+                        # Real processing happens here
+                        # Manual step tracking since Marker disables tqdm in non-TTY environments
+                        step_start = time.time()
+                        send_step_update("🔍 Analyzing document structure", "in_progress", step_start)
+                        
+                        # Wrapper to call step_callback (async) from tqdm interception
+                        async def tqdm_callback_json(step_name: str, status: str, substep: str = None):
+                            await step_callback(step_name, status, substep)
+                        
+                        with capture_tqdm_progress(tqdm_callback_json, None, loop):
+                            json_rendered = json_converter(file_path)
+                        
+                        send_step_update("🔍 Analyzing document structure", "completed", time.time())
+                        
+                        step_start = time.time()
+                        send_step_update("🏗️ Building JSON structure", "in_progress", step_start)
+                        
+                        # Extract and serialize native JSON structure
+                        if hasattr(json_rendered, 'children') and hasattr(json_rendered, 'block_type'):
+                            rich_structure = serialize_pydantic_objects({
+                                "block_type": json_rendered.block_type,
+                                "id": getattr(json_rendered, 'id', '/document/0'),
+                                "children": json_rendered.children,
+                            })
+                            logger.info(f"✅ JSON generated: {json_rendered.block_type} with {len(json_rendered.children) if hasattr(json_rendered, 'children') else 0} children")
+                        else:
+                            rich_structure = None
+                            logger.warning("⚠️ JSON structure not as expected")
+                        
+                        # Cleanup JSON converter
+                        send_step_update("🏗️ Building JSON structure", "completed", time.time())
+                        del json_converter
+                        gc.collect()
+                        logger.info("✅ JSON structure generated")
                     
-                    markdown_converter = PdfConverter(
-                        config=markdown_config_parser.generate_config_dict(),
-                        artifact_dict=self.models_dict,
-                        processor_list=markdown_config_parser.get_processors(),
-                        renderer=markdown_config_parser.get_renderer()
-                    )
+                    # Step: Markdown format if requested
+                    if need_markdown:
+                        logger.info("📝 Generating markdown format...")
+                        markdown_config = self._build_marker_config(
+                            output_format="markdown",
+                            force_ocr=force_ocr,
+                            extract_images=extract_images,
+                            paginate_output=paginate_output,
+                            language=language
+                        )
+                        markdown_config_parser = ConfigParser(markdown_config)
+                        
+                        # Note: Marker always runs table recognition internally as part of the processing pipeline.
+                        # The paginate_output option only controls whether page separators are added to the output.
+                        # All Marker steps are displayed in progress, including table recognition.
+                        markdown_converter = PdfConverter(
+                            config=markdown_config_parser.generate_config_dict(),
+                            artifact_dict=self.models_dict,
+                            processor_list=markdown_config_parser.get_processors(),
+                            renderer=markdown_config_parser.get_renderer()
+                        )
+                        
+                        # Real processing happens here
+                        # Manual step tracking since Marker disables tqdm in non-TTY environments
+                        step_start = time.time()
+                        send_step_update("🔍 Analyzing document structure", "in_progress", step_start)
+                        
+                        # Wrapper to call step_callback (async) from tqdm interception  
+                        async def tqdm_callback(step_name: str, status: str, substep: str = None):
+                            await step_callback(step_name, status, substep)
+                        
+                        # Capture ALL Marker steps - Marker may execute table recognition even if not formatted
+                        with capture_tqdm_progress(tqdm_callback, None, loop):
+                            markdown_rendered = markdown_converter(file_path)
+                        
+                        send_step_update("🔍 Analyzing document structure", "completed", time.time())
+                        
+                        # Extract markdown content
+                        if hasattr(markdown_rendered, 'markdown'):
+                            markdown_content = markdown_rendered.markdown
+                            logger.info(f"✅ Markdown generated: {len(markdown_content)} characters")
+                        else:
+                            # Fallback with text_from_rendered
+                            markdown_content, _, _ = text_from_rendered(markdown_rendered)
+                            logger.info("✅ Markdown via text_from_rendered fallback")
+                        
+                        # Cleanup markdown converter
+                        del markdown_converter
+                        gc.collect()
+                        logger.info("✅ Markdown generated")
                     
-                    markdown_rendered = markdown_converter(file_path)
+                    # 2. Extract metadata and images from whichever format was generated
+                    metadata = {}
+                    images = {}
                     
-                    # Extraire le contenu markdown
-                    if hasattr(markdown_rendered, 'markdown'):
-                        markdown_content = markdown_rendered.markdown
-                        logger.info(f"✅ Markdown: {len(markdown_content)} characters")
-                    else:
-                        # Fallback avec text_from_rendered
-                        markdown_content, _, _ = text_from_rendered(markdown_rendered)
-                        logger.info("✅ Markdown via text_from_rendered fallback")
+                    if json_rendered:
+                        metadata = getattr(json_rendered, 'metadata', {})
+                        images = getattr(json_rendered, 'images', {})
+                    elif markdown_rendered:
+                        metadata = getattr(markdown_rendered, 'metadata', {})
+                        images = getattr(markdown_rendered, 'images', {})
                     
-                    # 3. Récupérer les métadonnées et images (du JSON ou markdown)
-                    metadata = getattr(json_rendered, 'metadata', getattr(markdown_rendered, 'metadata', {}))
-                    images = getattr(json_rendered, 'images', getattr(markdown_rendered, 'images', {}))
-                    
-                    # 🔧 Convertir tous les objets non-sérialisables pour Redis
+                    # Serialize non-serializable objects for Redis
                     images = serialize_pydantic_objects(images)
                     metadata = serialize_pydantic_objects(metadata)
                     
-                    logger.info("🎉 Successfully generated BOTH formats!")
+                    logger.info(f"🎉 Successfully generated requested format(s): {output_format.value}")
                     
-                    # Prepare result before cleanup
+                    # Prepare result based on what was actually generated
                     result = {
-                        "text": markdown_content,  # Contenu markdown pour preview
-                        "markdown_content": markdown_content,  # Contenu markdown explicite
-                        "rich_structure": rich_structure,  # Structure JSON native
                         "metadata": metadata,
                         "images": images,
                         "processing_time": None  # Will be set below
                     }
                     
-                    # 🧹 Force garbage collection to free memory
-                    del json_converter, markdown_converter, json_rendered, markdown_rendered
+                    # Only include generated formats
+                    if need_markdown:
+                        result["text"] = markdown_content
+                        result["markdown_content"] = markdown_content
+                    else:
+                        result["text"] = ""
+                        result["markdown_content"] = None
+                    
+                    if need_json:
+                        result["rich_structure"] = rich_structure
+                    else:
+                        result["rich_structure"] = None
+                    
+                    # Final cleanup
+                    if json_rendered:
+                        del json_rendered
+                    if markdown_rendered:
+                        del markdown_rendered
                     gc.collect()
                     logger.info("🧹 Memory cleanup completed")
+                    
+                    # Complete OCR Processing step
+                    ocr_end_time = time.time()
+                    if step_callback:
+                        try:
+                            future = asyncio.run_coroutine_threadsafe(
+                                step_callback("📄 OCR Processing", "completed", ocr_end_time),
+                                loop
+                            )
+                            future.result(timeout=0.5)
+                        except:
+                            pass
                     
                     return result
                     
                 except Exception as e:
                     logger.error(f"Dual format processing failed, trying fallback: {str(e)}")
                     
-                    # Fallback vers une seule méthode si nécessaire
+                    # Fallback: return markdown only without rich structure
                     try:
                         converter = PdfConverter(artifact_dict=self.models_dict)
                         rendered = converter(file_path)
@@ -465,12 +706,14 @@ class DocumentParserService:
                         # Sérialiser les objets non-sérialisables
                         metadata = serialize_pydantic_objects(metadata)
                         images = serialize_pydantic_objects(images)
-                        rich_structure = create_rich_structure_from_markdown(text, images, metadata)
+                        
+                        # No rich_structure in fallback - rely on native JSON generation or return None
+                        logger.warning("Fallback mode: returning markdown without rich structure")
                         
                         result = {
                             "text": text,
                             "markdown_content": text,
-                            "rich_structure": rich_structure,
+                            "rich_structure": None,  # Fallback doesn't generate rich structure
                             "metadata": metadata,
                             "images": images,
                             "processing_time": None
@@ -491,6 +734,18 @@ class DocumentParserService:
                 timeout=600  # 10 minutes timeout
             )
             
+            # Step updates are now sent in real-time from the thread
+            # No need to process accumulated updates
+            
+            # Clean up Marker log interception
+            if marker_log_handler:
+                try:
+                    remove_marker_log_interception(marker_log_handler)
+                    logger.debug("Marker log interception removed")
+                except Exception as e:
+                    logger.warning(f"Failed to remove Marker log interception: {e}")
+            
+            # Processing time calculation (no separate step needed)
             processing_time = time.time() - start_time
             result["processing_time"] = processing_time
             

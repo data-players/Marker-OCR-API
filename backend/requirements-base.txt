@@ -1,0 +1,34 @@
+# ============================================================================
+# NIVEAU 2 : DÉPENDANCES SUPPLÉMENTAIRES (DEV/PROD)
+# ============================================================================
+# Ce fichier contient UNIQUEMENT les dépendances supplémentaires nécessaires
+# pour le développement et la production, qui ne sont PAS dans requirements-minimal.txt.
+#
+# ORDRE D'INSTALLATION DANS LES DOCKERFILES :
+#   1. requirements-models.txt (NIVEAU 3 - installé EN PREMIER)
+#   2. requirements-minimal.txt (NIVEAU 1 - installé ENSUITE)
+#   3. requirements-base.txt (NIVEAU 2 - installé EN DERNIER)
+#
+# UTILISATION :
+#   - Tests : requirements-minimal.txt uniquement
+#   - Dev/Prod : requirements-models.txt + requirements-minimal.txt + requirements-base.txt
+#
+# CONTENU :
+#   Ce fichier contient seulement les dépendances supplémentaires pour dev/prod :
+#   - pre-commit : outil de développement
+#   - PyMuPDF et pymupdf4llm : traitement PDF (non nécessaires pour tests mockés)
+#
+# OPTIMISATION CACHE DOCKER :
+#   Ces dépendances changent plus fréquemment que les modèles ML.
+#   Docker réutilise les couches précédentes si seulement ce fichier change.
+# ============================================================================
+
+# Environment management (development tool)
+pre-commit>=4.2.0,<5.0.0
+
+# PDF processing (not needed for mocked tests)
+PyMuPDF>=1.24.2
+pymupdf4llm==0.0.10
+
+# HTTP/2 server for production (SSE optimization)
+hypercorn==0.14.4

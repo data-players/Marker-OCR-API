@@ -108,11 +108,10 @@ export interface FileUploadResponse {
 }
 
 export interface ProcessingOptions {
-  processing_option: 'fast' | 'accurate' | 'ocr_only'
   output_format: 'json' | 'markdown' | 'both'
   force_ocr: boolean
   extract_images: boolean
-  extract_tables: boolean
+  paginate_output: boolean
   language?: string
 }
 
@@ -122,12 +121,33 @@ export interface ProcessResponse {
   estimated_time?: number
 }
 
+export interface SubStep {
+  name: string
+  status: 'pending' | 'in_progress' | 'completed' | 'failed'
+  start_time?: number
+  end_time?: number
+  duration?: number
+}
+
+export interface ProcessingStep {
+  name: string
+  description: string
+  status: 'pending' | 'in_progress' | 'completed' | 'failed'
+  start_time?: number
+  end_time?: number
+  duration?: number
+  sub_steps?: string[]
+  sub_steps_detailed?: SubStep[]
+  current_sub_step?: string
+}
+
 export interface JobStatus {
   job_id: string
   status: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled'
   created_at: string
   updated_at: string
   progress?: number
+  steps?: ProcessingStep[]
   result?: any
   error_message?: string
 }
@@ -164,6 +184,23 @@ export const apiService = {
     return response.data
   },
 
+  // Upload file from URL
+  async uploadFileFromUrl(url: string): Promise<FileUploadResponse> {
+    const formData = new FormData()
+    formData.append('url', url)
+    
+    const response = await apiClient.post<FileUploadResponse>(
+      '/documents/upload',
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      }
+    )
+    return response.data
+  },
+
   // Document processing
   async processDocument(
     fileId: string,
@@ -171,11 +208,10 @@ export const apiService = {
   ): Promise<ProcessResponse> {
     const formData = new FormData()
     formData.append('file_id', fileId)
-    formData.append('processing_option', options.processing_option || 'accurate')
     formData.append('output_format', options.output_format || 'both')
     formData.append('force_ocr', String(options.force_ocr || false))
     formData.append('extract_images', String(options.extract_images !== false))
-    formData.append('extract_tables', String(options.extract_tables !== false))
+    formData.append('paginate_output', String(options.paginate_output === true))
     
     if (options.language) {
       formData.append('language', options.language)
@@ -219,6 +255,127 @@ export const apiService = {
   // Delete file
   async deleteFile(fileId: string): Promise<void> {
     await apiClient.delete(`/documents/files/${fileId}`)
+  },
+
+  // Server-Sent Events for real-time job status updates
+  subscribeToJobStatus(
+    jobId: string,
+    onUpdate: (status: JobStatus) => void,
+    onError?: (error: Error) => void
+  ): () => void {
+    const baseURL = API_BASE_URL || 'http://localhost:8000'
+    const url = `${baseURL}/api/v1/documents/jobs/${jobId}/stream`
+    
+    console.log(`[SSE] Connecting to ${url} for job ${jobId}`)
+    const eventSource = new EventSource(url)
+    
+    // Track if we've received a final status (completed/failed/cancelled)
+    // This prevents reporting errors when connection closes normally after completion
+    let hasReceivedFinalStatus = false
+    let errorReportTimeout: NodeJS.Timeout | null = null
+    
+    eventSource.onopen = () => {
+      console.log(`[SSE] Connection opened for job ${jobId}`)
+    }
+    
+    eventSource.onmessage = (event) => {
+      console.log(`[SSE] Message received for job ${jobId}:`, event.data)
+      try {
+        const data = JSON.parse(event.data)
+        
+        // Handle error messages
+        if (data.error) {
+          const error = new Error(data.error)
+          onError?.(error)
+          eventSource.close()
+          return
+        }
+        
+        // Convert to JobStatus format
+        const jobStatus: JobStatus = {
+          job_id: data.job_id || jobId,
+          status: data.status,
+          created_at: data.created_at?.toString() || new Date().toISOString(),
+          updated_at: data.updated_at?.toString() || new Date().toISOString(),
+          progress: data.progress,
+          steps: data.steps || [], // Ensure steps is always an array, even if empty
+          result: data.result,
+          error_message: data.error_message
+        }
+        
+        console.log(`[SSE] Parsed job status:`, {
+          status: jobStatus.status,
+          stepsCount: jobStatus.steps?.length || 0,
+          steps: jobStatus.steps
+        })
+        
+        onUpdate(jobStatus)
+        
+        // Track if we've received a final status
+        if (['completed', 'failed', 'cancelled'].includes(data.status)) {
+          hasReceivedFinalStatus = true
+          // Clear any pending error timeout since we're closing normally
+          if (errorReportTimeout) {
+            clearTimeout(errorReportTimeout)
+            errorReportTimeout = null
+          }
+          // Close connection after a short delay to ensure final update is processed
+          setTimeout(() => {
+            eventSource.close()
+          }, 100)
+        }
+      } catch (err) {
+        console.error('Failed to parse SSE message:', err)
+        onError?.(err as Error)
+      }
+    }
+    
+    eventSource.onerror = (error) => {
+      console.error(`[SSE] Connection error for job ${jobId}:`, error)
+      console.error(`[SSE] EventSource readyState:`, eventSource.readyState)
+      // readyState: 0 = CONNECTING, 1 = OPEN, 2 = CLOSED
+      
+      // If we've already received a final status, ignore errors (connection closed normally)
+      if (hasReceivedFinalStatus) {
+        console.log(`[SSE] Connection closed normally after job completion for ${jobId}`)
+        return
+      }
+      
+      // Only report error if connection is actually closed
+      // onerror can fire during reconnection attempts, which is normal
+      if (eventSource.readyState === EventSource.CLOSED) {
+        console.error(`[SSE] Connection closed unexpectedly for job ${jobId}`)
+        // Don't call onError immediately - EventSource will try to reconnect automatically
+        // Only report error after multiple failed attempts
+        // Clear any existing timeout first
+        if (errorReportTimeout) {
+          clearTimeout(errorReportTimeout)
+        }
+        errorReportTimeout = setTimeout(() => {
+          // Double-check that we still haven't received final status
+          if (!hasReceivedFinalStatus && eventSource.readyState === EventSource.CLOSED) {
+            onError?.(new Error('SSE connection closed'))
+            eventSource.close()
+          }
+          errorReportTimeout = null
+        }, 5000) // Wait 5 seconds before reporting error
+      } else if (eventSource.readyState === EventSource.CONNECTING) {
+        // Connection is reconnecting, this is normal - don't report error
+        console.log(`[SSE] Reconnecting for job ${jobId}...`)
+      } else {
+        // Connection is open but error occurred - might be temporary
+        console.warn(`[SSE] Temporary error (readyState: ${eventSource.readyState}) for job ${jobId}, will retry`)
+      }
+      // Don't close connection on first error - let EventSource handle reconnection
+    }
+    
+    // Return cleanup function
+    return () => {
+      if (errorReportTimeout) {
+        clearTimeout(errorReportTimeout)
+      }
+      eventSource.close()
+    }
   },
 }
 

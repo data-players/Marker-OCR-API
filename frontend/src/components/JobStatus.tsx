@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { apiService, JobStatus as JobStatusType } from '@/services/api'
 import MarkdownPreview from './MarkdownPreview'
+import StepProgress from './StepProgress'
 
 interface JobStatusProps {
   jobId: string
@@ -27,20 +28,48 @@ const JobStatus: React.FC<JobStatusProps> = ({ jobId, onComplete }) => {
   const [previewFormat, setPreviewFormat] = useState<'markdown' | 'json'>('markdown')
   const [copiedMarkdown, setCopiedMarkdown] = useState(false)
   const [copiedJson, setCopiedJson] = useState(false)
-  const consecutiveErrorsRef = useRef(0)
-  const [pollingWarning, setPollingWarning] = useState<string | null>(null)
+  const eventSourceRef = useRef<(() => void) | null>(null)
 
   useEffect(() => {
-    const pollJobStatus = async () => {
-      try {
-        const status = await apiService.getJobStatus(jobId)
-        setJobStatus(status)
+    // Fetch initial status immediately to show steps right away
+    apiService.getJobStatus(jobId)
+      .then((initialStatus) => {
+        console.log('[JobStatus] Initial status fetched:', {
+          status: initialStatus.status,
+          stepsCount: initialStatus.steps?.length || 0,
+          steps: initialStatus.steps
+        })
+        setJobStatus(initialStatus)
+        setLoading(false)
         
-        // Reset error counter on successful poll
-        if (consecutiveErrorsRef.current > 0) {
-          consecutiveErrorsRef.current = 0
-          setPollingWarning(null)
+        // Track when processing starts for the first time
+        if (initialStatus.status === 'processing' && !processingStartTime) {
+          setProcessingStartTime(new Date())
         }
+      })
+      .catch((err) => {
+        console.error('[JobStatus] Failed to fetch initial status:', err)
+        // Continue anyway, SSE will provide updates
+      })
+    
+    // Use Server-Sent Events (SSE) for real-time updates instead of polling
+    const cleanup = apiService.subscribeToJobStatus(
+      jobId,
+      (status) => {
+        console.log('[JobStatus] Received status update via SSE:', {
+          status: status.status,
+          stepsCount: status.steps?.length || 0,
+          steps: status.steps,
+          stepsWithDuration: status.steps?.map(s => ({
+            name: s.name,
+            status: s.status,
+            duration: s.duration,
+            start_time: s.start_time,
+            end_time: s.end_time
+          })) || []
+        })
+        setJobStatus(status)
+        setLoading(false)
         
         // Track when processing starts for the first time
         if (status.status === 'processing' && !processingStartTime) {
@@ -48,58 +77,37 @@ const JobStatus: React.FC<JobStatusProps> = ({ jobId, onComplete }) => {
         }
         
         if (status.status === 'completed') {
-          setLoading(false)
           onComplete?.(status)
           
           // Load the result with both formats
-          try {
-            const resultData = await apiService.downloadResult(jobId, 'json')
-            setResult(resultData)
-          } catch (err) {
-            console.error('Failed to load result:', err)
-          }
+          apiService.downloadResult(jobId, 'json')
+            .then((resultData) => {
+              setResult(resultData)
+            })
+            .catch((err) => {
+              console.error('Failed to load result:', err)
+            })
         } else if (status.status === 'failed' || status.status === 'cancelled') {
-          setLoading(false)
+          // Error message is already in status.error_message
         }
-      } catch (err: any) {
-        // Increment consecutive error counter
-        consecutiveErrorsRef.current += 1
-        const newErrorCount = consecutiveErrorsRef.current
-        
-        console.warn(`Failed to check job status (attempt ${newErrorCount}):`, err.message)
-        
-        // Show warning after 3 consecutive errors, but don't block the UI
-        if (newErrorCount === 3) {
-          setPollingWarning('Temporary connection issues, retrying...')
-          
-          // Clear warning after showing it for a bit
-          setTimeout(() => {
-            if (consecutiveErrorsRef.current < 10) {
-              setPollingWarning(null)
-            }
-          }, 5000)
-        }
-        
-        // Only treat as fatal error after 10 consecutive failures
-        if (newErrorCount >= 10) {
-          setError(err.response?.data?.detail || err.message || 'Connection error')
-          setLoading(false)
-        }
+      },
+      (err) => {
+        console.error('SSE connection error:', err)
+        // SSE is the only method for updates - no polling fallback
+        setError(err.message || 'Connection error')
+        setLoading(false)
+      }
+    )
+    
+    eventSourceRef.current = cleanup
+
+    return () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current()
+        eventSourceRef.current = null
       }
     }
-
-    // Poll initially
-    pollJobStatus()
-
-    // Set up polling interval for pending/processing jobs
-    const interval = setInterval(() => {
-      if (jobStatus?.status === 'pending' || jobStatus?.status === 'processing' || !jobStatus) {
-        pollJobStatus()
-      }
-    }, 2000)
-
-    return () => clearInterval(interval)
-  }, [jobId, jobStatus?.status, onComplete, processingStartTime])
+  }, [jobId, onComplete, processingStartTime])
 
   const getStatusIcon = () => {
     if (!jobStatus) return <Loader className="h-5 w-5 animate-spin text-blue-500" />
@@ -137,6 +145,26 @@ const JobStatus: React.FC<JobStatusProps> = ({ jobId, onComplete }) => {
       default:
         return 'bg-gray-50 border-gray-200'
     }
+  }
+
+  const formatDuration = (duration: number) => {
+    if (duration < 1) {
+      return `${Math.round(duration * 1000)}ms`
+    } else if (duration < 60) {
+      return `${duration.toFixed(2)}s`
+    } else {
+      const minutes = Math.floor(duration / 60)
+      const seconds = Math.round(duration % 60)
+      return `${minutes}m ${seconds}s`
+    }
+  }
+
+  const getTotalProcessingTime = () => {
+    if (!jobStatus?.steps || jobStatus.steps.length === 0) {
+      return null
+    }
+    const totalDuration = jobStatus.steps.reduce((sum, step) => sum + (step.duration || 0), 0)
+    return totalDuration > 0 ? totalDuration : null
   }
 
   const getStatusText = () => {
@@ -227,26 +255,35 @@ const JobStatus: React.FC<JobStatusProps> = ({ jobId, onComplete }) => {
 
   return (
     <>
-      {/* Non-blocking warning for temporary polling issues */}
-      {pollingWarning && (
-        <div className="mb-3 bg-yellow-50 border border-yellow-200 rounded-lg p-3 flex items-center animate-pulse">
-          <Loader className="h-4 w-4 text-yellow-600 mr-2 animate-spin" />
-          <span className="text-sm text-yellow-800">{pollingWarning}</span>
-        </div>
-      )}
-      
       <div className={`border rounded-lg p-6 ${getStatusColor()}`}>
         <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center">
+          <div className="flex items-center flex-1 min-w-0">
             {getStatusIcon()}
-            <div className="ml-3">
-              <h3 className="font-medium text-gray-900">Processing Status</h3>
+            <div className="ml-3 flex-1 min-w-0">
+              <div className="flex items-center justify-between">
+                <h3 className="font-medium text-gray-900">Processing Status</h3>
+              </div>
               <p className="text-sm text-gray-600">{getStatusText()}</p>
             </div>
           </div>
         </div>
 
-      {jobStatus?.progress !== undefined && (
+      {/* Show step progress if available, otherwise show old progress bar */}
+      {/* Always show steps if they exist, even if empty (they will be populated via SSE) */}
+      {jobStatus?.steps !== undefined ? (
+        <div className="mb-4">
+          {jobStatus.steps.length > 0 ? (
+            <StepProgress 
+              steps={jobStatus.steps} 
+              isCompleted={jobStatus.status === 'completed'}
+            />
+          ) : (
+            <div className="text-sm text-gray-500 italic">
+              Initializing processing steps...
+            </div>
+          )}
+        </div>
+      ) : jobStatus?.progress !== undefined ? (
         <div className="mb-4">
           <div className="flex justify-between text-sm text-gray-600 mb-1">
             <span>Progress</span>
@@ -259,7 +296,11 @@ const JobStatus: React.FC<JobStatusProps> = ({ jobId, onComplete }) => {
             />
           </div>
         </div>
-      )}
+      ) : loading ? (
+        <div className="mb-4 text-sm text-gray-500 italic">
+          Connecting to processing stream...
+        </div>
+      ) : null}
 
       {jobStatus?.error_message && (
         <div className="mt-4 p-3 bg-red-100 border border-red-200 rounded">
@@ -267,7 +308,12 @@ const JobStatus: React.FC<JobStatusProps> = ({ jobId, onComplete }) => {
         </div>
       )}
 
-      {result && (
+      {result && (() => {
+        // Determine which formats are available
+        const hasMarkdown = result.result?.markdown_content && result.result.markdown_content !== null && result.result.markdown_content !== ''
+        const hasJson = result.result?.rich_structure && result.result.rich_structure !== null
+        
+        return (
         <div className="mt-6">
           <div className="flex items-center justify-between mb-3">
             <h4 className="font-medium text-gray-900 flex items-center">
@@ -275,31 +321,37 @@ const JobStatus: React.FC<JobStatusProps> = ({ jobId, onComplete }) => {
               Preview
             </h4>
             
-            {/* Toggle pour choisir le format de preview */}
-            <div className="flex items-center space-x-2">
-              <button
-                onClick={() => setPreviewFormat('markdown')}
-                className={`flex items-center px-3 py-1 text-sm rounded transition-colors ${
-                  previewFormat === 'markdown'
-                    ? 'bg-green-100 text-green-800 border border-green-300'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
-              >
-                <FileText className="h-3 w-3 mr-1" />
-                Markdown
-              </button>
-              <button
-                onClick={() => setPreviewFormat('json')}
-                className={`flex items-center px-3 py-1 text-sm rounded transition-colors ${
-                  previewFormat === 'json'
-                    ? 'bg-blue-100 text-blue-800 border border-blue-300'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
-              >
-                <Code2 className="h-3 w-3 mr-1" />
-                JSON
-              </button>
-            </div>
+            {/* Toggle pour choisir le format de preview - only show available formats */}
+            {(hasMarkdown || hasJson) && (
+              <div className="flex items-center space-x-2">
+                {hasMarkdown && (
+                  <button
+                    onClick={() => setPreviewFormat('markdown')}
+                    className={`flex items-center px-3 py-1 text-sm rounded transition-colors ${
+                      previewFormat === 'markdown'
+                        ? 'bg-green-100 text-green-800 border border-green-300'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    <FileText className="h-3 w-3 mr-1" />
+                    Markdown
+                  </button>
+                )}
+                {hasJson && (
+                  <button
+                    onClick={() => setPreviewFormat('json')}
+                    className={`flex items-center px-3 py-1 text-sm rounded transition-colors ${
+                      previewFormat === 'json'
+                        ? 'bg-blue-100 text-blue-800 border border-blue-300'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    <Code2 className="h-3 w-3 mr-1" />
+                    JSON
+                  </button>
+                )}
+              </div>
+            )}
           </div>
           
           <div className="bg-white border rounded-lg p-4 max-h-96 overflow-auto">
@@ -337,29 +389,34 @@ const JobStatus: React.FC<JobStatusProps> = ({ jobId, onComplete }) => {
             )}
           </div>
           
-          {/* Boutons de téléchargement déplacés sous la preview */}
-          {jobStatus?.status === 'completed' && (
+          {/* Boutons de téléchargement déplacés sous la preview - only show available formats */}
+          {jobStatus?.status === 'completed' && (hasMarkdown || hasJson) && (
             <div className="flex justify-center space-x-3 mt-4">
-              <button
-                onClick={() => handleDownload('markdown')}
-                className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm transition-colors shadow-sm"
-                title="Télécharger au format Markdown"
-              >
-                <FileText className="h-4 w-4 mr-2" />
-                Télécharger Markdown
-              </button>
-              <button
-                onClick={() => handleDownload('json')}
-                className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm transition-colors shadow-sm"
-                title="Télécharger la structure JSON riche"
-              >
-                <Database className="h-4 w-4 mr-2" />
-                Télécharger JSON
-              </button>
+              {hasMarkdown && (
+                <button
+                  onClick={() => handleDownload('markdown')}
+                  className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm transition-colors shadow-sm"
+                  title="Télécharger au format Markdown"
+                >
+                  <FileText className="h-4 w-4 mr-2" />
+                  Télécharger Markdown
+                </button>
+              )}
+              {hasJson && (
+                <button
+                  onClick={() => handleDownload('json')}
+                  className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm transition-colors shadow-sm"
+                  title="Télécharger la structure JSON riche"
+                >
+                  <Database className="h-4 w-4 mr-2" />
+                  Télécharger JSON
+                </button>
+              )}
             </div>
           )}
         </div>
-      )}
+        )
+      })()}
 
       <div className="mt-4 text-xs text-gray-500 space-y-1">
         <p>Job ID: <code className="bg-gray-100 px-1 rounded">{jobId}</code></p>

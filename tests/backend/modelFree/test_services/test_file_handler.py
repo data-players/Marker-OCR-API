@@ -207,4 +207,62 @@ class TestFileHandlerService:
         assert "upload_dir" in usage_info
         assert "output_dir" in usage_info
         assert usage_info["upload_dir"]["used_bytes"] >= 0
-        assert usage_info["output_dir"]["used_bytes"] >= 0 
+        assert usage_info["output_dir"]["used_bytes"] >= 0
+
+    @pytest.mark.asyncio
+    async def test_download_file_from_url_success(self, file_handler_service):
+        """Test successful file download from URL."""
+        test_url = "https://file-examples.com/storage/fecf1c9d35693fb809c2bef/2017/10/file-sample_150kB.pdf"
+        
+        file_info = await file_handler_service.download_file_from_url(
+            url=test_url,
+            validate=True
+        )
+        
+        # Verify file info structure
+        assert "file_id" in file_info
+        assert "filename" in file_info
+        assert file_info["filename"] == "file-sample_150kB.pdf"
+        assert "size" in file_info
+        assert file_info["size"] > 0
+        assert file_info["content_type"] == "application/pdf"
+        
+        # Verify file exists
+        file_path = file_handler_service.get_file_path(file_info["file_id"])
+        assert file_path is not None
+
+    @pytest.mark.asyncio
+    async def test_download_file_from_url_invalid_format(self, file_handler_service):
+        """Test URL download with invalid URL format."""
+        invalid_url = "not-a-valid-url"
+        
+        with pytest.raises(ValidationError):
+            await file_handler_service.download_file_from_url(
+                url=invalid_url,
+                validate=True
+            )
+
+    @pytest.mark.asyncio
+    async def test_download_file_from_url_unsupported_scheme(self, file_handler_service):
+        """Test URL download with unsupported URL scheme."""
+        ftp_url = "ftp://example.com/file.pdf"
+        
+        with pytest.raises(ValidationError):
+            await file_handler_service.download_file_from_url(
+                url=ftp_url,
+                validate=True
+            )
+
+    @pytest.mark.asyncio
+    async def test_download_file_from_url_default_filename(self, file_handler_service):
+        """Test URL download with URL that doesn't contain filename."""
+        test_url = "https://example.com/download"
+        
+        file_info = await file_handler_service.download_file_from_url(
+            url=test_url,
+            validate=True
+        )
+        
+        # Should use default filename
+        assert file_info["filename"] == "document.pdf"
+        assert file_info["content_type"] == "application/pdf"

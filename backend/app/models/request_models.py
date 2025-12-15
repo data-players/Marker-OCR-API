@@ -8,13 +8,6 @@ from pydantic import BaseModel, Field, validator
 from enum import Enum
 
 
-class ProcessingOptions(str, Enum):
-    """Available document processing options."""
-    FAST = "fast"
-    ACCURATE = "accurate"
-    OCR_ONLY = "ocr_only"
-
-
 class OutputFormat(str, Enum):
     """Available output formats."""
     JSON = "json"
@@ -25,13 +18,8 @@ class OutputFormat(str, Enum):
 class DocumentProcessRequest(BaseModel):
     """Request model for document processing."""
     
-    processing_option: ProcessingOptions = Field(
-        default=ProcessingOptions.ACCURATE,
-        description="Processing quality option"
-    )
-    
     output_format: OutputFormat = Field(
-        default=OutputFormat.BOTH,
+        default=OutputFormat.MARKDOWN,
         description="Desired output format"
     )
     
@@ -41,13 +29,13 @@ class DocumentProcessRequest(BaseModel):
     )
     
     extract_images: bool = Field(
-        default=True,
+        default=False,
         description="Extract and include images"
     )
     
-    extract_tables: bool = Field(
-        default=True,
-        description="Extract and format tables"
+    paginate_output: bool = Field(
+        default=False,
+        description="Add page separators in output. When enabled, adds separators between pages in the markdown output."
     )
     
     language: Optional[str] = Field(

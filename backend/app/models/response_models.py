@@ -18,6 +18,87 @@ class JobStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class StepStatus(str, Enum):
+    """Step processing status values."""
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class SubStep(BaseModel):
+    """Individual sub-step with timing information."""
+    
+    name: str = Field(description="Sub-step name")
+    status: StepStatus = Field(default=StepStatus.PENDING, description="Sub-step status")
+    start_time: Optional[float] = Field(
+        default=None,
+        description="Sub-step start timestamp (Unix time)"
+    )
+    end_time: Optional[float] = Field(
+        default=None,
+        description="Sub-step end timestamp (Unix time)"
+    )
+    duration: Optional[float] = Field(
+        default=None,
+        description="Sub-step duration in seconds"
+    )
+
+
+class ProcessingStep(BaseModel):
+    """Individual processing step information."""
+    
+    name: str = Field(description="Step name")
+    description: str = Field(description="Step description")
+    status: StepStatus = Field(description="Step status")
+    start_time: Optional[float] = Field(
+        default=None,
+        description="Step start timestamp (Unix time)"
+    )
+    end_time: Optional[float] = Field(
+        default=None,
+        description="Step end timestamp (Unix time)"
+    )
+    duration: Optional[float] = Field(
+        default=None,
+        description="Step duration in seconds"
+    )
+    sub_steps: Optional[List[str]] = Field(
+        default=None,
+        description="Sub-step details or progress messages (deprecated, use sub_steps_detailed)"
+    )
+    sub_steps_detailed: Optional[List[SubStep]] = Field(
+        default=None,
+        description="Detailed sub-steps with timing information"
+    )
+    current_sub_step: Optional[str] = Field(
+        default=None,
+        description="Current sub-step being processed"
+    )
+    
+    def start(self):
+        """Mark step as started."""
+        import time
+        self.status = StepStatus.IN_PROGRESS
+        self.start_time = time.time()
+    
+    def complete(self):
+        """Mark step as completed."""
+        import time
+        self.status = StepStatus.COMPLETED
+        self.end_time = time.time()
+        if self.start_time:
+            self.duration = self.end_time - self.start_time
+    
+    def fail(self):
+        """Mark step as failed."""
+        import time
+        self.status = StepStatus.FAILED
+        self.end_time = time.time()
+        if self.start_time:
+            self.duration = self.end_time - self.start_time
+
+
 class ErrorResponse(BaseModel):
     """Standard error response model."""
     
@@ -119,7 +200,12 @@ class JobResponse(BaseModel):
     
     progress: Optional[float] = Field(
         default=None,
-        description="Processing progress (0-100)"
+        description="Processing progress (0-100) - deprecated, use steps instead"
+    )
+    
+    steps: Optional[List[ProcessingStep]] = Field(
+        default=None,
+        description="Detailed processing steps with timing information"
     )
     
     result: Optional[ProcessingResult] = Field(

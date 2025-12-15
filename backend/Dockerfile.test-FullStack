@@ -1,0 +1,62 @@
+# Dockerfile for real PDF testing with Marker library
+# This includes all ML dependencies needed to test Marker with actual PDFs
+FROM python:3.11-slim
+
+# Install system dependencies for Marker
+RUN apt-get update && apt-get install -y \
+    curl \
+    git \
+    build-essential \
+    libpoppler-cpp-dev \
+    pkg-config \
+    python3-dev \
+    tesseract-ocr \
+    tesseract-ocr-fra \
+    tesseract-ocr-eng \
+    libtesseract-dev \
+    poppler-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN groupadd -r testuser && useradd -r -g testuser testuser
+
+# Set working directory
+WORKDIR /app
+
+# Install Python dependencies in layers for better caching
+# Order optimized for Docker layer caching (models change rarely)
+# LEVEL 3: ML models dependencies FIRST (Marker library - heaviest, changes rarely)
+COPY requirements-models.txt .
+RUN pip install --no-cache-dir -r requirements-models.txt
+
+# LEVEL 1: Minimal dependencies SECOND (base dependencies)
+COPY requirements-minimal.txt .
+RUN pip install --no-cache-dir -r requirements-minimal.txt
+
+# LEVEL 2: Additional dependencies LAST (changes more frequently)
+COPY requirements-base.txt .
+RUN pip install --no-cache-dir -r requirements-base.txt
+
+# Copy application code
+COPY . .
+
+# Create necessary directories and change ownership
+RUN mkdir -p uploads outputs logs test-results && \
+    chown -R testuser:testuser /app
+
+# Switch to non-root user
+USER testuser
+
+# Set environment for testing
+ENV PYTHONPATH=/app
+ENV ENVIRONMENT=test
+ENV LOG_LEVEL=DEBUG
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD python -c "from app.services.document_parser import DocumentParserService; print('OK')" || exit 1
+
+# Default command - can be overridden
+# Note: Tests are mounted from tests/backend/FullStack/ in docker-compose
+CMD ["python3", "-m", "pytest", "tests/backend/FullStack", "--tb=short", "-v"]
+

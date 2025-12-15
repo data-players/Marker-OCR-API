@@ -22,9 +22,20 @@ WORKDIR /app
 # Create necessary directories
 RUN mkdir -p uploads outputs logs
 
-# Copy requirements and install as appuser
-COPY --chown=appuser:appuser requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
+# Install dependencies in order (three-level hierarchy):
+# LEVEL 3: Install model dependencies FIRST (heavy ML models, rarely change)
+# This layer will be cached separately from other dependencies
+COPY --chown=appuser:appuser requirements-models.txt .
+RUN pip install --no-cache-dir --user -r requirements-models.txt
+
+# LEVEL 1: Install minimal dependencies SECOND (base dependencies for all environments)
+COPY --chown=appuser:appuser requirements-minimal.txt .
+RUN pip install --no-cache-dir --user -r requirements-minimal.txt
+
+# LEVEL 2: Install additional dev/prod dependencies LAST (supplements minimal)
+# Docker will reuse cached layers if only this changes
+COPY --chown=appuser:appuser requirements-base.txt .
+RUN pip install --no-cache-dir --user -r requirements-base.txt
 
 # Copy application code
 COPY --chown=appuser:appuser . .
@@ -40,5 +51,6 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # Expose port
 EXPOSE 8000
 
-# Run the application
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"] 
+# Run the application with HTTP/2 support via Hypercorn
+# Note: SSE works perfectly on HTTP/1.1, but HTTP/2 provides better performance
+CMD ["hypercorn", "app.main:app", "--bind", "0.0.0.0:8000", "--workers", "1", "--log-level", "info"] 

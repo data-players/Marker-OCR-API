@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { 
   Loader, 
   CheckCircle, 
@@ -29,10 +29,12 @@ const ModelLoadingScreen: React.FC<ModelLoadingScreenProps> = ({ onModelsReady }
     models_loaded: false
   })
   const [isRetrying, setIsRetrying] = useState(false)
+  const hasCalledReady = useRef(false)
   const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
   useEffect(() => {
     let interval: NodeJS.Timeout
+    let timeoutId: NodeJS.Timeout | null = null
 
     const checkModelStatus = async () => {
       try {
@@ -40,9 +42,10 @@ const ModelLoadingScreen: React.FC<ModelLoadingScreenProps> = ({ onModelsReady }
         const status = await response.json()
         setModelStatus(status)
 
-        if (status.models_loaded && status.status === 'ready') {
+        if (status.models_loaded && status.status === 'ready' && !hasCalledReady.current) {
+          hasCalledReady.current = true
           if (interval) clearInterval(interval)
-          setTimeout(() => onModelsReady(), 1000) // Small delay for UX
+          timeoutId = setTimeout(() => onModelsReady(), 1000) // Small delay for UX
         }
       } catch (error) {
         console.error('Failed to check model status:', error)
@@ -63,11 +66,14 @@ const ModelLoadingScreen: React.FC<ModelLoadingScreenProps> = ({ onModelsReady }
 
     return () => {
       if (interval) clearInterval(interval)
+      if (timeoutId) clearTimeout(timeoutId)
+      hasCalledReady.current = false
     }
   }, [onModelsReady])
 
   const handleRetry = async () => {
     setIsRetrying(true)
+    hasCalledReady.current = false // Reset flag to allow new cycle
     try {
       await fetch(`${API_BASE_URL}/api/v1/health/models/reload`, { 
         method: 'POST' 

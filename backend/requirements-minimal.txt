@@ -1,42 +1,69 @@
-# Minimal requirements for testing (without heavy ML dependencies)
+# ============================================================================
+# NIVEAU 1 : DÉPENDANCES MINIMALES (TESTS UNIQUEMENT)
+# ============================================================================
+# Ce fichier contient les dépendances MINIMALES nécessaires pour les tests.
+# C'est le niveau le plus léger, sans modèles ML ni outils de développement.
+#
+# ORDRE D'INSTALLATION DANS LES DOCKERFILES :
+#   - Dockerfile.test : requirements-minimal.txt uniquement
+#   - Dockerfile (dev/prod) : requirements-models.txt + requirements-minimal.txt + requirements-base.txt
+#
+# UTILISATION :
+#   - Tests : requirements-minimal.txt uniquement
+#   - Dev/Prod : requirements-models.txt + requirements-minimal.txt + requirements-base.txt
+#
+# EXCLUSIONS PAR RAPPORT À requirements-base.txt :
+#   - PyMuPDF et pymupdf4llm : non nécessaires (services mockés dans les tests)
+#   - pre-commit : outil de développement, pas nécessaire dans le conteneur de test
+#
+# PERFORMANCE :
+#   Build time : ~30 secondes (vs ~7 minutes avec modèles ML)
+#   Permet des builds de test ultra-rapides pour CI/CD
+# ============================================================================
 
 # Web framework
-fastapi>=0.104.0
-uvicorn[standard]>=0.24.0
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
 
 # Data validation and serialization
 pydantic>=2.5.0
 pydantic-settings>=2.1.0
 
 # File handling and utilities
-python-multipart>=0.0.6
-aiofiles>=23.2.1
+python-multipart==0.0.6
+aiofiles==23.2.1
 
 # HTTP client for external services
-httpx>=0.25.2
+httpx==0.25.2
 
-# Background task processing
-celery>=5.3.4
-redis>=5.0.1
+# Background job processing
+celery==5.3.4
+redis==5.0.1
 
-# Logging and monitoring
-python-json-logger>=2.0.7
-structlog>=23.2.0
+# Logging
+python-json-logger==2.0.7
+structlog==23.2.0
 
-# Testing (essential)
-pytest>=7.4.3
-pytest-asyncio>=0.21.1
-pytest-cov>=4.1.0
-pytest-xdist>=3.3.1
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-cov==4.1.0
+# pytest-mock==3.12.0  # Commented out for now
+pytest-xdist==3.3.1
 
-# Development tools
-python-dotenv>=1.0.0
+# Environment management
+python-dotenv==1.0.0
+# pre-commit excluded: development tool, not needed in test container
 
-# Code quality and linting
-flake8>=6.1.0
-black>=23.11.0
-isort>=5.12.0
-mypy>=1.7.1
+# Code quality tools
+flake8==6.1.0
+black==23.11.0
+isort==5.12.0
 
-# Type stubs
-types-aiofiles 
+# PDF processing excluded for tests (services are mocked):
+# PyMuPDF>=1.24.2
+# pymupdf4llm==0.0.10
+
+# Type checking
+mypy==1.7.1
+types-aiofiles==23.2.0.0

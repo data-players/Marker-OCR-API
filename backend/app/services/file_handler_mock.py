@@ -39,6 +39,76 @@ class MockFileHandlerService(LoggerMixin):
                          upload_dir=str(self.upload_dir), 
                          output_dir=str(self.output_dir))
 
+    async def download_file_from_url(
+        self,
+        url: str,
+        validate: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Mock download file from URL - simulates downloading and saving.
+        
+        For testing, this method validates the URL format and simulates
+        downloading by creating mock PDF content based on the URL.
+        """
+        from urllib.parse import urlparse
+        
+        # Validate URL format
+        parsed_url = urlparse(url)
+        if not parsed_url.scheme or not parsed_url.netloc:
+            raise ValidationError(f"Invalid URL format: {url}")
+        
+        if parsed_url.scheme not in ['http', 'https']:
+            raise ValidationError(f"Unsupported URL scheme: {parsed_url.scheme}")
+        
+        # Extract filename from URL or use default
+        filename = parsed_url.path.split('/')[-1] or 'document.pdf'
+        if not filename or '.' not in filename:
+            filename = 'document.pdf'
+        
+        # For mock testing, generate sample PDF content
+        # In real implementation, this would download from URL
+        mock_pdf_content = b"""%PDF-1.4
+1 0 obj
+<<
+/Type /Catalog
+/Pages 2 0 R
+>>
+endobj
+
+2 0 obj
+<<
+/Type /Pages
+/Kids [3 0 R]
+/Count 1
+>>
+endobj
+
+3 0 obj
+<<
+/Type /Page
+/Parent 2 0 R
+/MediaBox [0 0 612 792]
+>>
+endobj
+
+xref
+0 4
+0000000000 65535 f 
+0000000009 00000 n 
+0000000074 00000 n 
+0000000120 00000 n 
+trailer
+<<
+/Size 4
+/Root 1 0 R
+>>
+startxref
+199
+%%EOF"""
+        
+        # Save using existing method
+        return await self.save_uploaded_file(mock_pdf_content, filename, validate)
+
     async def save_uploaded_file(
         self,
         file_content: bytes,

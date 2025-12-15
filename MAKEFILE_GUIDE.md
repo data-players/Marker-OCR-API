@@ -90,7 +90,8 @@ make test-frontend          # Tests frontend ~3s
 ### Tests Avancés
 
 ```bash
-make test-backend-fast-report  # Tests backend + rapport HTML de couverture
+make test-backend-modelFree-report  # Tests backend (modelFree) + rapport HTML de couverture
+make test-backend-FullStack  # Tests backend (FullStack - avec modèles ML)
 make test-watch-backend     # Tests backend en mode watch (développement)
 make test-watch-frontend    # Tests frontend en mode watch (développement)
 ```
@@ -111,7 +112,8 @@ make build-prod             # Build images production seulement
 ```bash
 make build-backend-dev      # Image backend développement
 make build-frontend-dev     # Image frontend développement
-make build-backend-test     # Image backend test légère
+make build-backend-test-modelFree     # Image backend test légère (modelFree)
+make build-backend-test-FullStack     # Image backend test complète (FullStack)
 ```
 
 ## 📊 Monitoring et Diagnostic
@@ -145,34 +147,53 @@ make clean-all              # ATTENTION: Supprime tout (containers, images, volu
 
 ### Architecture des Requirements
 
-Le projet utilise **deux fichiers de dépendances** pour optimiser les builds :
+Le projet utilise **trois fichiers de dépendances** organisés en hiérarchie pour optimiser les builds Docker :
 
 ```bash
-# Backend production/développement (complet)
-backend/requirements.txt        # Toutes les dépendances incluant Marker/PyTorch
-                               # Build time: ~7 minutes
-                               # Usage: Dockerfile, Dockerfile.dev
+# NIVEAU 3 : Modèles ML lourds (installé EN PREMIER)
+backend/requirements-models.txt  # Dépendances ML lourdes (Marker, PyTorch, etc.)
+                                 # Build time: ~5-7 minutes
+                                 # Changements rares → cache Docker optimisé
 
-# Backend tests (minimal)  
-backend/requirements-minimal.txt # Dépendances essentielles seulement
-                               # Build time: ~30 secondes
-                               # Usage: Dockerfile.test (utilisé directement)
+# NIVEAU 1 : Dépendances minimales (base pour tous les environnements)
+backend/requirements-minimal.txt # Dépendances essentielles (FastAPI, Pydantic, etc.)
+                                 # Build time: ~30 secondes
+                                 # Usage: Tests uniquement OU base pour dev/prod
+
+# NIVEAU 2 : Dépendances supplémentaires (dev/prod uniquement)
+backend/requirements-base.txt    # Dépendances supplémentaires (pre-commit, PyMuPDF, etc.)
+                                 # Build time: ~1-2 minutes
+                                 # Usage: Dev/Prod uniquement (supplément de minimal)
 ```
 
-**Différences clés :**
-- `requirements.txt` → Inclut Marker, PyTorch, dépendances ML lourdes
-- `requirements-minimal.txt` → Exclut les dépendances ML, services mockés
+**Hiérarchie des niveaux :**
+- `requirements-models.txt` (NIVEAU 3) → Marker, PyTorch, transformers, Pillow (modèles ML lourds)
+- `requirements-minimal.txt` (NIVEAU 1) → FastAPI, Pydantic, outils de test, qualité de code (base commune)
+- `requirements-base.txt` (NIVEAU 2) → pre-commit, PyMuPDF, pymupdf4llm (suppléments dev/prod)
 
-**Architecture Dockerfile :**
+**Architecture Dockerfile (optimisée pour le cache) :**
 ```dockerfile
-# Production/Développement
-COPY requirements.txt .
-RUN pip install -r requirements.txt
+# Production/Développement (même environnement)
+# Installation en trois étapes pour optimiser le cache Docker
+COPY --chown=appuser:appuser requirements-models.txt .
+RUN pip install --no-cache-dir --user -r requirements-models.txt
+
+COPY --chown=appuser:appuser requirements-minimal.txt .
+RUN pip install --no-cache-dir --user -r requirements-minimal.txt
+
+COPY --chown=appuser:appuser requirements-base.txt .
+RUN pip install --no-cache-dir --user -r requirements-base.txt
 
 # Tests (optimisé)  
 COPY requirements-minimal.txt .
-RUN pip install -r requirements-minimal.txt  # Directement !
+RUN pip install --no-cache-dir -r requirements-minimal.txt
 ```
+
+**Avantages de cette architecture :**
+- ✅ Cache Docker optimisé : les modèles ML (niveau 3) sont installés en premier et mis en cache séparément
+- ✅ Builds de test ultra-rapides : niveau 1 uniquement sans modèles ML (~30s vs ~7min)
+- ✅ Environnement identique entre dev et prod (même Dockerfile avec les 3 niveaux)
+- ✅ Maintenance simplifiée : requirements-base.txt contient uniquement les suppléments
 
 ### Variables d'Environnement Utilisées
 
@@ -196,7 +217,8 @@ backend-dev                 # Backend avec hot reloading
 frontend-dev                # Frontend avec hot reloading
 
 # Profil "test"
-backend-test                # Backend avec image légère
+backend-test-modelFree      # Backend avec image légère (sans modèles ML)
+backend-test-FullStack      # Backend avec image complète (avec modèles ML)
 frontend-test               # Frontend pour tests
 
 # Profil "production" (Deprecated - use Marker-OCR-API-prod)

@@ -113,9 +113,8 @@ make up
 
 ```
 backend/
-├── Dockerfile        ← Production image
-├── Dockerfile.dev    ← Development image
-└── Dockerfile.test   ← Test image
+├── Dockerfile        ← Dev/Prod image (même environnement, CMD override en dev)
+└── Dockerfile.test   ← Test image (dépendances minimales)
 
 frontend/
 ├── Dockerfile        ← Production image
@@ -301,7 +300,7 @@ make up
 
 ## Next Steps
 
-- **Development**: See backend/Dockerfile.dev and frontend/Dockerfile.dev
+- **Development**: See backend/Dockerfile (même que production, CMD override par docker-compose) and frontend/Dockerfile.dev
 - **Testing**: See backend/Dockerfile.test and test configuration
 - **Production**: See ../Marker-OCR-API-prod/README.md and MIGRATION_GUIDE.md
 

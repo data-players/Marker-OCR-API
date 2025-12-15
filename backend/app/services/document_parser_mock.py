@@ -16,7 +16,7 @@ from app.core.exceptions import (
     FileNotFoundError as CustomFileNotFoundError,
     FileProcessingError
 )
-from app.models.request_models import ProcessingOptions, OutputFormat
+from app.models.request_models import OutputFormat
 
 
 class MockDocumentParserService(LoggerMixin):
@@ -34,10 +34,9 @@ class MockDocumentParserService(LoggerMixin):
     async def process_document(
         self,
         file_path: Path,
-        processing_option: ProcessingOptions,
         output_format: OutputFormat,
         force_ocr: bool = False,
-        extract_images: bool = True,
+        extract_images: bool = False,
         extract_tables: bool = True,
         language: Optional[str] = None
     ) -> Dict[str, Any]:
@@ -52,19 +51,13 @@ class MockDocumentParserService(LoggerMixin):
         self.log_operation(
             "Mock document processing started",
             file_path=str(file_path),
-            processing_option=processing_option.value,
             output_format=output_format.value
         )
         
         start_time = time.time()
         
-        # Simulate processing time based on option
-        if processing_option == ProcessingOptions.FAST:
-            await asyncio.sleep(0.5)
-        elif processing_option == ProcessingOptions.ACCURATE:
-            await asyncio.sleep(1.0)
-        else:  # OCR_ONLY
-            await asyncio.sleep(1.5)
+        # Simulate processing time
+        await asyncio.sleep(0.5)
         
         processing_time = time.time() - start_time
         

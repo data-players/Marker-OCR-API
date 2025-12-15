@@ -33,7 +33,7 @@ class RedisService:
     
     def store_job(self, job_id: str, job_data: Dict[str, Any], ttl: int = 86400) -> bool:
         """
-        Store job data in Redis with TTL.
+        Store job data in Redis with TTL and publish update notification.
         
         Args:
             job_id: Unique job identifier
@@ -48,6 +48,10 @@ class RedisService:
             value = json.dumps(job_data)
             self.client.setex(key, ttl, value)
             logger.debug(f"Stored job {job_id} in Redis")
+            
+            # Publish update notification for SSE
+            self.publish_job_update(job_id, job_data)
+            
             return True
         except Exception as e:
             logger.error(f"Failed to store job {job_id}: {str(e)}")
@@ -75,7 +79,7 @@ class RedisService:
     
     def update_job(self, job_id: str, updates: Dict[str, Any], ttl: int = 86400) -> bool:
         """
-        Update job data in Redis.
+        Update job data in Redis and publish update notification.
         
         Args:
             job_id: Unique job identifier
@@ -93,10 +97,77 @@ class RedisService:
             
             # Merge updates
             existing_data.update(updates)
-            return self.store_job(job_id, existing_data, ttl)
+            success = self.store_job(job_id, existing_data, ttl)
+            
+            # Publish update notification for SSE
+            if success:
+                self.publish_job_update(job_id, existing_data)
+            
+            return success
         except Exception as e:
             logger.error(f"Failed to update job {job_id}: {str(e)}")
             return False
+    
+    def publish_job_update(self, job_id: str, job_data: Dict[str, Any]) -> bool:
+        """
+        Publish job update notification via Redis pub/sub for SSE.
+        
+        Args:
+            job_id: Unique job identifier
+            job_data: Complete job data dictionary
+            
+        Returns:
+            True if published successfully
+        """
+        try:
+            channel = f"job_updates:{job_id}"
+            message = json.dumps(job_data)
+            self.client.publish(channel, message)
+            logger.debug(f"Published update for job {job_id} to channel {channel}")
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to publish job update for {job_id}: {str(e)}")
+            return False
+    
+    def subscribe_job_updates(self, job_id: str):
+        """
+        Subscribe to job update notifications via Redis pub/sub.
+        
+        Args:
+            job_id: Unique job identifier
+            
+        Yields:
+            Job data dictionaries as updates are published
+        """
+        try:
+            pubsub = self.client.pubsub()
+            channel = f"job_updates:{job_id}"
+            pubsub.subscribe(channel)
+            logger.debug(f"Subscribed to job updates for {job_id}")
+            
+            # Send initial state immediately
+            initial_data = self.get_job(job_id)
+            if initial_data:
+                yield initial_data
+            
+            # Listen for updates
+            for message in pubsub.listen():
+                if message['type'] == 'message':
+                    try:
+                        job_data = json.loads(message['data'])
+                        yield job_data
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Failed to decode job update message: {str(e)}")
+                elif message['type'] == 'subscribe':
+                    logger.debug(f"Successfully subscribed to {channel}")
+        except Exception as e:
+            logger.error(f"Failed to subscribe to job updates for {job_id}: {str(e)}")
+            raise
+        finally:
+            try:
+                pubsub.close()
+            except Exception:
+                pass
     
     def delete_job(self, job_id: str) -> bool:
         """
@@ -148,6 +219,7 @@ class RedisService:
         except Exception as e:
             logger.error(f"Redis ping failed: {str(e)}")
             return False
+
 
 
 

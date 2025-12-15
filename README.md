@@ -96,15 +96,16 @@ make clean                  # Nettoyer les containers
 Marker-OCR-API/
 ├── backend/                     # API FastAPI (port 8000)
 │   ├── app/                    # Code source (hot reload)
-│   ├── Dockerfile.dev          # Image développement
-│   ├── Dockerfile.test         # Image test légère
-│   └── Dockerfile              # Image production
+│   ├── Dockerfile              # Image dev/prod (même environnement)
+│   └── Dockerfile.test-modelFree  # Image test légère (sans modèles ML)
+│   └── Dockerfile.test-FullStack  # Image test complète (avec modèles ML)
 ├── frontend/                   # Interface React (port 3000)
 │   ├── src/                    # Code source (hot reload)
 │   ├── Dockerfile.dev          # Image développement
 │   └── Dockerfile              # Image production
 ├── docker-compose.dev.yml      # Dev local (hot reloading)
-├── docker-compose.test.yml     # Tests automatisés
+├── docker-compose.test-modelFree.yml  # Tests automatisés (sans modèles ML)
+├── docker-compose.test-FullStack.yml  # Tests automatisés (avec modèles ML)
 ├── Makefile                    # Commandes simplifiées
 ├── DOCKER_COMPOSE_GUIDE.md     # Guide des environnements
 └── MAKEFILE_GUIDE.md           # Documentation complète

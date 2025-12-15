@@ -1,12 +1,14 @@
 version: '3.8'
 
 services:
-  # Test services
-  backend-test:
+  # Test services (modelFree - without heavy ML dependencies)
+  backend-test-modelFree:
     build:
       context: ./backend
-      dockerfile: Dockerfile.test
+      dockerfile: Dockerfile.test-modelFree
     volumes:
+      - ./backend:/app:ro  # Read-only backend code
+      - ./tests:/app/../tests:ro  # Mount tests directory
       - ./shared/uploads:/app/uploads
       - ./shared/outputs:/app/outputs
     environment:
@@ -15,6 +17,9 @@ services:
       - LOG_LEVEL=DEBUG
       - UPLOAD_DIR=/app/uploads
       - OUTPUT_DIR=/app/outputs
+      - API_BASE_URL=${API_BASE_URL:-http://host.docker.internal:8000}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - marker-network
 
@@ -39,6 +44,7 @@ volumes:
   redis_data:
   backend_uploads:
   backend_outputs:
+
 
 
 
