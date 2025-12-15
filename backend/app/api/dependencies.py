@@ -195,7 +195,7 @@ async def cleanup_services():
     
     try:
         if _document_parser_instance:
-            await _document_parser_instance.cleanup()
+            await _document_parser_instance.shutdown()
             _document_parser_instance = None
         
         # File handler doesn't need async cleanup, but we reset the instance
