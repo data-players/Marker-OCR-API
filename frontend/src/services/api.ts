@@ -208,7 +208,8 @@ export const apiService = {
   ): Promise<ProcessResponse> {
     const formData = new FormData()
     formData.append('file_id', fileId)
-    formData.append('output_format', options.output_format || 'both')
+    // Use the provided output_format, default to 'markdown' if not specified (not 'both')
+    formData.append('output_format', options.output_format || 'markdown')
     formData.append('force_ocr', String(options.force_ocr || false))
     formData.append('extract_images', String(options.extract_images !== false))
     formData.append('paginate_output', String(options.paginate_output === true))

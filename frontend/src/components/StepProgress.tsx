@@ -1,14 +1,6 @@
 import React, { useState } from 'react'
 import { CheckCircle, Circle, Loader, XCircle, ChevronDown, ChevronUp } from 'lucide-react'
 
-export interface SubStep {
-  name: string
-  status: 'pending' | 'in_progress' | 'completed' | 'failed'
-  start_time?: number
-  end_time?: number
-  duration?: number
-}
-
 export interface ProcessingStep {
   name: string
   description: string
@@ -16,8 +8,9 @@ export interface ProcessingStep {
   start_time?: number
   end_time?: number
   duration?: number
+  // Legacy fields kept for backward compatibility but not used
   sub_steps?: string[]
-  sub_steps_detailed?: SubStep[]
+  sub_steps_detailed?: any[]
   current_sub_step?: string
 }
 
@@ -189,122 +182,6 @@ const StepProgress: React.FC<StepProgressProps> = ({ steps, isCompleted = false 
               <p className="text-sm text-gray-600 mt-1">
                 {step.description}
               </p>
-              
-              {/* Show all sub-steps (using detailed sub-steps if available, otherwise fallback to simple list) */}
-              {step.sub_steps_detailed && step.sub_steps_detailed.length > 0 ? (
-                <div className="mt-3 ml-8 space-y-1.5">
-                  {/* Sort sub-steps by start_time to ensure consistent order for dynamic additions */}
-                  {(() => {
-                    const sortedSubSteps = [...step.sub_steps_detailed].sort((a, b) => {
-                      // Sort by start_time if available, otherwise by index
-                      if (a.start_time && b.start_time) {
-                        return a.start_time - b.start_time
-                      }
-                      if (a.start_time) return -1
-                      if (b.start_time) return 1
-                      return 0
-                    })
-                    
-                    return sortedSubSteps.map((subStep, idx) => {
-                      const isCurrentStep = subStep.status === 'in_progress'
-                      const isCompleted = subStep.status === 'completed'
-                      const isPending = subStep.status === 'pending'
-                      
-                      // Use a unique key based on name and start_time to handle dynamic additions
-                      // This ensures React properly tracks sub-steps added dynamically by Marker's log handler
-                      const uniqueKey = subStep.start_time 
-                        ? `${subStep.name}-${subStep.start_time}` 
-                        : `${subStep.name}-${idx}`
-                      
-                      return (
-                        <div 
-                          key={uniqueKey}
-                          className={`text-xs flex items-center justify-between gap-4 transition-all duration-500 ease-in-out ${
-                            isCurrentStep 
-                              ? 'text-blue-600 font-medium transform scale-105 animate-fadeIn' 
-                              : isCompleted 
-                              ? 'text-gray-700' 
-                              : 'text-gray-400'
-                          } ${
-                            isCompleted && idx > 0 && sortedSubSteps[idx - 1]?.status === 'in_progress'
-                              ? 'animate-slideIn' 
-                              : ''
-                          }`}
-                      >
-                        <div className="flex items-center flex-1 min-w-0">
-                          {isCurrentStep ? (
-                            <Loader className="h-3.5 w-3.5 text-blue-500 mr-2 animate-spin flex-shrink-0" />
-                          ) : isCompleted ? (
-                            <CheckCircle className="h-3.5 w-3.5 text-green-500 mr-2 flex-shrink-0" />
-                          ) : (
-                            <Circle className="h-3.5 w-3.5 text-gray-300 mr-2 flex-shrink-0" />
-                          )}
-                          <span className={isCurrentStep ? 'font-medium' : ''}>{subStep.name}</span>
-                        </div>
-                        
-                        {/* Show duration for completed and in-progress sub-steps */}
-                        {subStep.duration !== undefined && subStep.duration > 0 && (
-                          <span className={`text-xs font-mono px-2 py-0.5 rounded flex-shrink-0 ${
-                            isCompleted 
-                              ? 'text-green-600 bg-green-50' 
-                              : isCurrentStep 
-                              ? 'text-blue-600 bg-blue-50 animate-pulse' 
-                              : ''
-                          }`}>
-                            {formatDuration(subStep.duration)}
-                            {isCurrentStep && '...'}
-                          </span>
-                        )}
-                      </div>
-                      )
-                    })
-                  })()}
-                </div>
-              ) : step.sub_steps && step.sub_steps.length > 0 ? (
-                // Fallback to simple sub-steps list (backward compatibility)
-                <div className="mt-3 ml-8 space-y-1.5">
-                  {step.sub_steps.map((subStep, idx) => {
-                    const isLastStep = idx === step.sub_steps!.length - 1
-                    const isCurrentStep = step.status === 'in_progress' && 
-                                         (isLastStep || step.current_sub_step === subStep)
-                    const isCompleted = step.status === 'completed' || 
-                                       (step.status === 'in_progress' && !isCurrentStep)
-                    
-                    return (
-                      <div 
-                        key={`${subStep}-${idx}`}
-                        className={`text-xs flex items-center transition-all duration-500 ease-in-out ${
-                          isCurrentStep 
-                            ? 'text-blue-600 font-medium transform scale-105 animate-fadeIn' 
-                            : isCompleted 
-                            ? 'text-gray-700' 
-                            : 'text-gray-400'
-                        }`}
-                      >
-                        {isCurrentStep ? (
-                          <Loader className="h-3.5 w-3.5 text-blue-500 mr-2 animate-spin flex-shrink-0" />
-                        ) : isCompleted ? (
-                          <CheckCircle className="h-3.5 w-3.5 text-green-500 mr-2 flex-shrink-0" />
-                        ) : (
-                          <Circle className="h-3.5 w-3.5 text-gray-300 mr-2 flex-shrink-0" />
-                        )}
-                        <span className={isCurrentStep ? 'font-medium' : ''}>{subStep}</span>
-                      </div>
-                    )
-                  })}
-                </div>
-              ) : null}
-              
-              {/* Show current sub-step if no sub_steps list exists yet */}
-              {step.status === 'in_progress' && 
-               step.current_sub_step && 
-               (!step.sub_steps_detailed || step.sub_steps_detailed.length === 0) &&
-               (!step.sub_steps || step.sub_steps.length === 0) && (
-                <div className="mt-2 ml-8 text-xs text-blue-600 font-medium flex items-center">
-                  <Loader className="h-3.5 w-3.5 text-blue-500 mr-2 animate-spin flex-shrink-0" />
-                  <span>{step.current_sub_step}</span>
-                </div>
-              )}
             </div>
           </div>
           </div>

@@ -121,8 +121,7 @@ class MarkerLogHandler(logging.Handler):
                     if step_key not in self.seen_steps:
                         self.seen_steps.add(step_key)
                         if self.step_callback and self.event_loop:
-                            # Send step update using thread-safe coroutine execution
-                            # Steps are now main steps, not sub-steps
+                            # Send step update as independent step (not sub-step)
                             try:
                                 step_start_time = time.time()
                                 self.step_start_times[step_description] = step_start_time
@@ -132,6 +131,19 @@ class MarkerLogHandler(logging.Handler):
                                 )
                             except Exception:
                                 pass  # Silently ignore errors to avoid breaking Marker
+                    else:
+                        # If step already seen, check if it's completing (100% progress)
+                        # This handles completion of steps that were already started
+                        if step_description in self.step_start_times:
+                            # Check if this is a completion message (could be enhanced with pattern matching)
+                            completion_time = time.time()
+                            try:
+                                asyncio.run_coroutine_threadsafe(
+                                    self._send_step_update(step_description, "completed", completion_time),
+                                    self.event_loop
+                                )
+                            except Exception:
+                                pass
                     break
             
             # If no pattern matched but it's a DEBUG/INFO level log from renderers/converters,
@@ -171,6 +183,17 @@ class MarkerLogHandler(logging.Handler):
                                         self.step_start_times[step_description] = step_start_time
                                         asyncio.run_coroutine_threadsafe(
                                             self._send_step_update(step_description, "in_progress", step_start_time),
+                                            self.event_loop
+                                        )
+                                    except Exception:
+                                        pass
+                            else:
+                                # If step already seen, check if it's completing
+                                if step_description in self.step_start_times:
+                                    completion_time = time.time()
+                                    try:
+                                        asyncio.run_coroutine_threadsafe(
+                                            self._send_step_update(step_description, "completed", completion_time),
                                             self.event_loop
                                         )
                                     except Exception:

@@ -59,7 +59,7 @@ def capture_tqdm_progress(step_callback, step_name=None, loop=None):
     - "Recognizing tables: 100%|██████████| 1/1 [00:06<00:00,  6.87s/it]"
     
     These don't go through Python logging, so we intercept stdout/stderr.
-    ALL steps executed by Marker are captured and displayed, regardless of options.
+    ALL steps executed by Marker are captured and displayed as independent steps.
     """
     # Mapping of tqdm progress messages to user-friendly step names
     # All Marker steps are captured - Marker may execute table recognition even if not formatted
@@ -109,21 +109,21 @@ def capture_tqdm_progress(step_callback, step_name=None, loop=None):
                                 if step_key not in seen_progress:
                                     seen_progress.add(step_key)
                                     logger.info(f"🔔 [tqdm_capture] First time seeing: {step_description}, calling callback")
-                                    # Start step
+                                    # Start step as independent step (not sub-step)
                                     step_start_times[step_description] = time.time()
                                     try:
                                         # Call callback (handles both sync and async)
                                         if step_callback is None:
                                             logger.warning(f"⚠️ [tqdm_capture] step_callback is None!")
                                         elif asyncio.iscoroutinefunction(step_callback):
-                                            logger.info(f"📞 [tqdm_capture] Calling ASYNC callback for sub-step {step_description}")
+                                            logger.info(f"📞 [tqdm_capture] Calling ASYNC callback for step {step_description}")
                                             asyncio.run_coroutine_threadsafe(
-                                                step_callback("📄 OCR Processing", "sub_step", step_description),
+                                                step_callback(step_description, "in_progress", step_start_times[step_description]),
                                                 loop
                                             )
                                         else:
-                                            logger.info(f"📞 [tqdm_capture] Calling SYNC callback for sub-step {step_description}")
-                                            step_callback("📄 OCR Processing", "sub_step", step_description)
+                                            logger.info(f"📞 [tqdm_capture] Calling SYNC callback for step {step_description}")
+                                            step_callback(step_description, "in_progress", step_start_times[step_description])
                                     except Exception as e:
                                         logger.warning(f"Failed to call step callback: {e}")
                                 else:
@@ -132,14 +132,14 @@ def capture_tqdm_progress(step_callback, step_name=None, loop=None):
                                         if step_description in step_start_times:
                                             completion_time = time.time()
                                             try:
-                                                # Call callback to complete the sub-step
+                                                # Call callback to complete the step
                                                 if asyncio.iscoroutinefunction(step_callback):
                                                     asyncio.run_coroutine_threadsafe(
-                                                        step_callback("📄 OCR Processing", "sub_step", (step_description, completion_time)),
+                                                        step_callback(step_description, "completed", completion_time),
                                                         loop
                                                     )
                                                 else:
-                                                    step_callback("📄 OCR Processing", "sub_step", (step_description, completion_time))
+                                                    step_callback(step_description, "completed", completion_time)
                                             except Exception as e:
                                                 logger.warning(f"Failed to call step callback: {e}")
                             break
@@ -454,38 +454,6 @@ class DocumentParserService:
             # Process document in thread pool
             loop = asyncio.get_event_loop()
             
-            # Helper function to send step updates as sub-steps of "OCR Processing"
-            def send_step_update(sub_step_name: str, status: str, timestamp=None):
-                """Send sub-step update for OCR Processing in real-time."""
-                logger.info(f"🎯 send_step_update called: sub_step={sub_step_name}, status={status}, step_callback={step_callback is not None}, loop={loop is not None}")
-                if step_callback:
-                    try:
-                        # Convert status to sub-step format
-                        if status == "in_progress":
-                            # Start a new sub-step
-                            future = asyncio.run_coroutine_threadsafe(
-                                step_callback("📄 OCR Processing", "sub_step", sub_step_name),
-                                loop
-                            )
-                            # Wait briefly to ensure callback is processed
-                            try:
-                                future.result(timeout=0.5)
-                            except:
-                                pass  # Don't block on timeout
-                        elif status == "completed":
-                            # Complete the sub-step with timestamp
-                            future = asyncio.run_coroutine_threadsafe(
-                                step_callback("📄 OCR Processing", "sub_step", (sub_step_name, timestamp)),
-                                loop
-                            )
-                            # Wait briefly to ensure callback is processed
-                            try:
-                                future.result(timeout=0.5)
-                            except:
-                                pass  # Don't block on timeout
-                    except Exception as e:
-                        logger.warning(f"Failed to send step update: {e}")
-            
             # Set up Marker log interception to capture internal execution details
             marker_log_handler = None
             if step_callback:
@@ -517,18 +485,6 @@ class DocumentParserService:
                     # 1. Process document - Generate formats
                     logger.info("🎯 Starting document processing...")
                     
-                    # Start OCR Processing step
-                    ocr_start_time = time.time()
-                    if step_callback:
-                        try:
-                            future = asyncio.run_coroutine_threadsafe(
-                                step_callback("📄 OCR Processing", "in_progress", ocr_start_time),
-                                loop
-                            )
-                            future.result(timeout=0.5)
-                        except:
-                            pass
-                    
                     # Step: JSON format if requested
                     if need_json:
                         logger.info("🎯 Generating native JSON format...")
@@ -550,21 +506,13 @@ class DocumentParserService:
                         )
                         
                         # Real processing happens here
-                        # Manual step tracking since Marker disables tqdm in non-TTY environments
-                        step_start = time.time()
-                        send_step_update("🔍 Analyzing document structure", "in_progress", step_start)
-                        
+                        # Marker steps are automatically detected by capture_tqdm_progress
                         # Wrapper to call step_callback (async) from tqdm interception
                         async def tqdm_callback_json(step_name: str, status: str, substep: str = None):
                             await step_callback(step_name, status, substep)
                         
                         with capture_tqdm_progress(tqdm_callback_json, None, loop):
                             json_rendered = json_converter(file_path)
-                        
-                        send_step_update("🔍 Analyzing document structure", "completed", time.time())
-                        
-                        step_start = time.time()
-                        send_step_update("🏗️ Building JSON structure", "in_progress", step_start)
                         
                         # Extract and serialize native JSON structure
                         if hasattr(json_rendered, 'children') and hasattr(json_rendered, 'block_type'):
@@ -579,7 +527,6 @@ class DocumentParserService:
                             logger.warning("⚠️ JSON structure not as expected")
                         
                         # Cleanup JSON converter
-                        send_step_update("🏗️ Building JSON structure", "completed", time.time())
                         del json_converter
                         gc.collect()
                         logger.info("✅ JSON structure generated")
@@ -607,10 +554,7 @@ class DocumentParserService:
                         )
                         
                         # Real processing happens here
-                        # Manual step tracking since Marker disables tqdm in non-TTY environments
-                        step_start = time.time()
-                        send_step_update("🔍 Analyzing document structure", "in_progress", step_start)
-                        
+                        # Marker steps are automatically detected by capture_tqdm_progress
                         # Wrapper to call step_callback (async) from tqdm interception  
                         async def tqdm_callback(step_name: str, status: str, substep: str = None):
                             await step_callback(step_name, status, substep)
@@ -618,8 +562,6 @@ class DocumentParserService:
                         # Capture ALL Marker steps - Marker may execute table recognition even if not formatted
                         with capture_tqdm_progress(tqdm_callback, None, loop):
                             markdown_rendered = markdown_converter(file_path)
-                        
-                        send_step_update("🔍 Analyzing document structure", "completed", time.time())
                         
                         # Extract markdown content
                         if hasattr(markdown_rendered, 'markdown'):
@@ -679,18 +621,6 @@ class DocumentParserService:
                         del markdown_rendered
                     gc.collect()
                     logger.info("🧹 Memory cleanup completed")
-                    
-                    # Complete OCR Processing step
-                    ocr_end_time = time.time()
-                    if step_callback:
-                        try:
-                            future = asyncio.run_coroutine_threadsafe(
-                                step_callback("📄 OCR Processing", "completed", ocr_end_time),
-                                loop
-                            )
-                            future.result(timeout=0.5)
-                        except:
-                            pass
                     
                     return result
                     

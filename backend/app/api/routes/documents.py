@@ -560,147 +560,20 @@ async def process_document_background(
     # Initialize processing steps
     steps_dict = {}
     
-    def create_step(name: str, description: str, sub_steps_list: Optional[List[str]] = None) -> ProcessingStep:
-        """Create a new processing step with optional predefined sub-steps."""
-        sub_steps_detailed = None
-        if sub_steps_list:
-            sub_steps_detailed = [
-                SubStep(name=sub_name, status=StepStatus.PENDING)
-                for sub_name in sub_steps_list
-            ]
-        
-        step = ProcessingStep(
-            name=name,
-            description=description,
-            status=StepStatus.PENDING,
-            sub_steps_detailed=sub_steps_detailed
-        )
-        steps_dict[name] = step
-        return step
-    
-    # Pre-create OCR Processing meta-step with sub-steps
-    # Sub-steps will be updated by Marker wrappers (tqdm/log handlers)
-    ocr_sub_steps = [
-        "🔍 Recognizing document layout",
-        "🔍 Running OCR error detection",
-        "📦 Detecting bounding boxes",
-        "📊 Recognizing tables",
-        "📝 Extracting text",
-        "📄 Processing pages",
-        "🏗️ Building JSON structure",
-        "🔍 Analyzing document structure",
-    ]
-    
-    # Create OCR Processing meta-step with predefined sub-steps
-    create_step(
-        "📄 OCR Processing",
-        "Processing document with OCR and structure analysis",
-        sub_steps_list=ocr_sub_steps
-    )
-    
-    # Initialize steps in Redis immediately so frontend can display them
+    # Initialize steps in Redis immediately (steps will be created dynamically as they are detected)
     redis_service.update_job(job_id, {
         "status": JobStatus.PROCESSING.value,
-        "steps": [s.model_dump(mode='json') for s in steps_dict.values()],
+        "steps": [],
         "updated_at": time.time()
     })
-    logger.info(f"Initialized {len(steps_dict)} processing steps in Redis for job {job_id}")
+    logger.info(f"Initialized processing job {job_id} - steps will be created dynamically")
     
-    def _group_small_substeps(step: ProcessingStep):
-        """
-        Group consecutive completed sub-steps with duration < 10ms into a single macro step.
-        IMPORTANT: This function does NOT remove the original small steps - they remain visible.
-        It only creates/updates a macro step that summarizes them for display purposes.
-        All steps remain visible throughout processing.
-        The macro step is only created/updated when there are completed small steps.
-        """
-        if not step.sub_steps_detailed:
-            return
-        
-        SMALL_STEP_THRESHOLD = 0.01  # 10ms in seconds
-        MACRO_STEP_NAME = "⚡ Initialization and quick operations"
-        
-        # Check if macro step already exists
-        existing_macro = None
-        small_completed_steps = []
-        
-        # Find macro step and collect small completed steps
-        for sub_step in step.sub_steps_detailed:
-            if sub_step.name == MACRO_STEP_NAME:
-                existing_macro = sub_step
-            elif (sub_step.status == StepStatus.COMPLETED and 
-                  sub_step.duration is not None and 
-                  sub_step.duration < SMALL_STEP_THRESHOLD):
-                small_completed_steps.append(sub_step)
-        
-        # Only create/update macro if we have completed small steps
-        if len(small_completed_steps) == 0:
-            # No completed small steps yet - remove macro if it exists (shouldn't happen, but safety)
-            if existing_macro:
-                step.sub_steps_detailed.remove(existing_macro)
-            return
-        
-        # Calculate total duration of small steps
-        total_small_duration = sum(s.duration for s in small_completed_steps if s.duration is not None)
-        
-        # Find earliest start_time and latest end_time for small steps
-        start_times = [s.start_time for s in small_completed_steps if s.start_time is not None]
-        end_times = [s.end_time for s in small_completed_steps if s.end_time is not None]
-        
-        # If macro exists, include its timing in the calculation
-        if existing_macro:
-            if existing_macro.start_time:
-                start_times.append(existing_macro.start_time)
-            if existing_macro.end_time:
-                end_times.append(existing_macro.end_time)
-            # Add existing macro duration to total
-            if existing_macro.duration:
-                total_small_duration += existing_macro.duration
-            
-            # Update existing macro step
-            existing_macro.start_time = min(start_times) if start_times else None
-            existing_macro.end_time = max(end_times) if end_times else None
-            existing_macro.duration = max(total_small_duration, 0.001)
-            existing_macro.status = StepStatus.COMPLETED
-        else:
-            # Create new macro step (but keep all original steps)
-            macro_start_time = min(start_times) if start_times else None
-            macro_end_time = max(end_times) if end_times else None
-            
-            macro_step = SubStep(
-                name=MACRO_STEP_NAME,
-                status=StepStatus.COMPLETED,
-                start_time=macro_start_time,
-                end_time=macro_end_time,
-                duration=max(total_small_duration, 0.001)
-            )
-            # Add macro step to the list (at the beginning for visibility)
-            # But keep all original steps - don't remove them
-            step.sub_steps_detailed.insert(0, macro_step)
-        
-        # Sort by start_time to maintain chronological order
-        step.sub_steps_detailed = sorted(
-            step.sub_steps_detailed,
-            key=lambda s: s.start_time if s.start_time else float('inf')
-        )
-        
-        # Also update legacy sub_steps list for backward compatibility
-        if step.sub_steps:
-            # Add macro step name if not already present
-            if MACRO_STEP_NAME not in step.sub_steps:
-                # Insert at the beginning to maintain chronological order
-                step.sub_steps.insert(0, MACRO_STEP_NAME)
-    
-    async def step_callback(step_name: str, status: str, timestamp_or_substep: float = None):
-        """Callback to update step status in Redis."""
+    async def step_callback(step_name: str, status: str, timestamp: float = None):
+        """Callback to update step status in Redis. All steps are independent (no sub-steps)."""
         import time
         
         # Debug: Log all step callbacks
-        logger.info(f"📢 Step callback: {step_name} | status={status} | timestamp={timestamp_or_substep}")
-        
-        # IMPORTANT: All Marker steps are displayed, regardless of options
-        # Marker always executes table recognition (pagination only affects output formatting)
-        # This ensures users see what Marker is actually doing
+        logger.info(f"📢 Step callback: {step_name} | status={status} | timestamp={timestamp}")
         
         # Create step if it doesn't exist (for dynamically created steps from tqdm/logs)
         if step_name not in steps_dict:
@@ -716,216 +589,56 @@ async def process_document_background(
         
         step = steps_dict[step_name]
         
-        # Handle sub-step updates with timing
-        if status == "sub_step":
-            # Check if this is a completion with explicit timestamp (tuple)
-            if isinstance(timestamp_or_substep, tuple) and len(timestamp_or_substep) == 2:
-                sub_step_name, end_timestamp = timestamp_or_substep
-                # Complete the specified sub-step with explicit timestamp
-                if step.sub_steps_detailed:
-                    for existing_sub in step.sub_steps_detailed:
-                        if existing_sub.name == sub_step_name:
-                            if existing_sub.status == StepStatus.IN_PROGRESS:
-                                # Only complete if it was in progress
-                                existing_sub.status = StepStatus.COMPLETED
-                                # Ensure end_timestamp is >= start_time to avoid negative duration
-                                if existing_sub.start_time:
-                                    if end_timestamp < existing_sub.start_time:
-                                        # If end_timestamp is before start_time, adjust start_time
-                                        existing_sub.start_time = end_timestamp - 0.001
-                                    existing_sub.end_time = end_timestamp
-                                    existing_sub.duration = max(0.001, end_timestamp - existing_sub.start_time)
-                                else:
-                                    # If start_time is missing, set it just before end_time
-                                    existing_sub.start_time = end_timestamp - 0.001
-                                    existing_sub.end_time = end_timestamp
-                                    existing_sub.duration = 0.001
-                            elif existing_sub.status == StepStatus.PENDING:
-                                # If it was pending, start and complete it immediately
-                                existing_sub.status = StepStatus.COMPLETED
-                                existing_sub.start_time = end_timestamp - 0.001  # Very short duration
-                                existing_sub.end_time = end_timestamp
-                                existing_sub.duration = 0.001
-                            elif existing_sub.status == StepStatus.COMPLETED:
-                                # Already completed - just update timing if needed
-                                if existing_sub.end_time is None or end_timestamp > existing_sub.end_time:
-                                    if existing_sub.start_time and end_timestamp >= existing_sub.start_time:
-                                        existing_sub.end_time = end_timestamp
-                                        existing_sub.duration = max(0.001, end_timestamp - existing_sub.start_time)
-                            break
-                
-                # Don't group immediately - wait until all small steps are completed
-                # This ensures all steps remain visible throughout processing
-            elif isinstance(timestamp_or_substep, str):
-                    sub_step_name = timestamp_or_substep
-                    
-                    # Initialize sub_steps_detailed if not exists
-                    if step.sub_steps_detailed is None:
-                        step.sub_steps_detailed = []
-                    
-                    # Always complete the previous in-progress sub-step first
-                    current_time = time.time()
-                    completed_a_small_step = False
-                    for existing_sub in step.sub_steps_detailed:
-                        if existing_sub.status == StepStatus.IN_PROGRESS:
-                            existing_sub.status = StepStatus.COMPLETED
-                            existing_sub.end_time = current_time
-                            if existing_sub.start_time:
-                                # Ensure duration is always positive
-                                if current_time >= existing_sub.start_time:
-                                    existing_sub.duration = current_time - existing_sub.start_time
-                                else:
-                                    # If current_time is before start_time (shouldn't happen, but safety check)
-                                    existing_sub.start_time = current_time - 0.001
-                                    existing_sub.duration = 0.001
-                            else:
-                                # If start_time is missing, set it just before current_time
-                                existing_sub.start_time = current_time - 0.001
-                                existing_sub.duration = 0.001
-                            
-                            # Check if this completed step is small (< 10ms)
-                            if existing_sub.duration is not None and existing_sub.duration < 0.01:
-                                completed_a_small_step = True
-                    
-                    # Find existing sub-step or create new one
-                    sub_step = None
-                    for existing_sub in step.sub_steps_detailed:
-                        if existing_sub.name == sub_step_name:
-                            sub_step = existing_sub
-                            break
-                    
-                    if sub_step is None:
-                        # New sub-step: create it
-                        sub_step = SubStep(
-                            name=sub_step_name,
-                            status=StepStatus.IN_PROGRESS,
-                            start_time=current_time
-                        )
-                        step.sub_steps_detailed.append(sub_step)
+        # Handle step updates (all steps are independent, no sub-steps)
+        if status == "in_progress":
+            # Complete any other step that is currently in progress (only one step at a time)
+            current_time = timestamp if isinstance(timestamp, (int, float)) else time.time()
+            for other_step_name, other_step in steps_dict.items():
+                if other_step_name != step_name and other_step.status == StepStatus.IN_PROGRESS:
+                    logger.info(f"🔄 Auto-completing previous step: {other_step_name} (new step starting: {step_name})")
+                    other_step.status = StepStatus.COMPLETED
+                    other_step.end_time = current_time
+                    if other_step.start_time:
+                        other_step.duration = max(0.001, other_step.end_time - other_step.start_time)
                     else:
-                        # Existing sub-step: mark as in progress if pending or completed
-                        if sub_step.status in [StepStatus.PENDING, StepStatus.COMPLETED]:
-                            sub_step.status = StepStatus.IN_PROGRESS
-                            sub_step.start_time = current_time
-                            # Reset end_time and duration if it was previously completed
-                            sub_step.end_time = None
-                            sub_step.duration = None
-                    
-                    step.current_sub_step = sub_step_name
-                    
-                    # Also update legacy sub_steps for backward compatibility
-                    if step.sub_steps is None:
-                        step.sub_steps = []
-                    if sub_step_name not in step.sub_steps:
-                        step.sub_steps.append(sub_step_name)
-                    
-                    # Don't group immediately - wait until all small steps are completed
-                    # This ensures all steps remain visible throughout processing
-                    
-            elif status == "in_progress":
-                if timestamp_or_substep and isinstance(timestamp_or_substep, (int, float)):
-                    step.status = StepStatus.IN_PROGRESS
-                    step.start_time = timestamp_or_substep
-                    logger.info(f"▶️ Step started: {step_name} at {step.start_time}")
-                else:
-                    step.start()
-                    logger.info(f"▶️ Step started: {step_name} (no timestamp)")
-            elif status == "completed":
-                # Complete all in-progress sub-steps first
-                completion_time = timestamp_or_substep if isinstance(timestamp_or_substep, (int, float)) else time.time()
-                logger.info(f"✅ Step completing: {step_name} at {completion_time}")
-                
-                if step.sub_steps_detailed:
-                    for sub_step in step.sub_steps_detailed:
-                        if sub_step.status == StepStatus.IN_PROGRESS:
-                            sub_step.status = StepStatus.COMPLETED
-                            # Ensure completion_time is >= start_time
-                            if sub_step.start_time:
-                                if completion_time < sub_step.start_time:
-                                    # Adjust start_time to be just before completion_time
-                                    sub_step.start_time = completion_time - 0.001
-                                sub_step.end_time = completion_time
-                                sub_step.duration = max(0.001, completion_time - sub_step.start_time)
-                            else:
-                                # If start_time is missing, set it just before completion_time
-                                sub_step.start_time = completion_time - 0.001
-                                sub_step.end_time = completion_time
-                                sub_step.duration = 0.001
-                
-                # Calculate total duration as sum of sub-steps durations
-                if step.sub_steps_detailed:
-                    # Filter out invalid durations and ensure all are positive
-                    valid_durations = []
-                    for sub in step.sub_steps_detailed:
-                        if sub.duration is not None:
-                            # Ensure duration is positive, fix if negative
-                            if sub.duration <= 0:
-                                # Fix negative or zero duration
-                                if sub.start_time and sub.end_time and sub.end_time > sub.start_time:
-                                    sub.duration = sub.end_time - sub.start_time
-                                else:
-                                    sub.duration = 0.001  # Minimum duration
-                            valid_durations.append(sub.duration)
-                    total_sub_duration = sum(valid_durations) if valid_durations else 0.0
-                    # Use sum of sub-steps as the main step duration
-                    if timestamp_or_substep and isinstance(timestamp_or_substep, (int, float)):
-                        step.status = StepStatus.COMPLETED
-                        step.end_time = timestamp_or_substep
-                        # Adjust start_time to make duration match sum of sub-steps
-                        if step.start_time:
-                            step.duration = total_sub_duration
-                        else:
-                            step.start_time = timestamp_or_substep - total_sub_duration
-                            step.duration = total_sub_duration
-                    else:
-                        step.complete()
-                        step.duration = total_sub_duration
-                        if step.start_time:
-                            step.end_time = step.start_time + total_sub_duration
-                else:
-                    # Fallback to normal calculation if no sub-steps (now all steps are main steps)
-                    if timestamp_or_substep and isinstance(timestamp_or_substep, (int, float)):
-                        step.status = StepStatus.COMPLETED
-                        step.end_time = timestamp_or_substep
-                        if step.start_time:
-                            step.duration = max(0.001, step.end_time - step.start_time)
-                        else:
-                            # If start_time is missing, set it just before end_time
-                            step.start_time = timestamp_or_substep - 0.001
-                            step.duration = 0.001
-                    else:
-                        step.complete()
-                        # Ensure duration is set even if start_time was missing
-                        if step.duration is None or step.duration <= 0:
-                            if step.start_time and step.end_time:
-                                step.duration = max(0.001, step.end_time - step.start_time)
-                            elif step.start_time:
-                                # If end_time is missing, use current time
-                                import time
-                                step.end_time = time.time()
-                                step.duration = max(0.001, step.end_time - step.start_time)
-                            else:
-                                step.duration = 0.001
-                
-                logger.info(f"✅ Step completed: {step_name} | duration={step.duration:.3f}s | start={step.start_time} | end={step.end_time}")
-                step.current_sub_step = None  # Clear current sub-step
-            elif status == "failed":
-                if timestamp_or_substep and isinstance(timestamp_or_substep, (int, float)):
-                    step.status = StepStatus.FAILED
-                    step.end_time = timestamp_or_substep
-                    if step.start_time:
-                        step.duration = step.end_time - step.start_time
-                else:
-                    step.fail()
+                        other_step.start_time = current_time - 0.001
+                        other_step.duration = 0.001
             
-            # Don't group here - grouping happens only when all small steps are completed
-            # This ensures all steps remain visible throughout processing
+            # Now start the new step
+            if timestamp and isinstance(timestamp, (int, float)):
+                step.status = StepStatus.IN_PROGRESS
+                step.start_time = timestamp
+                logger.info(f"▶️ Step started: {step_name} at {step.start_time}")
+            else:
+                step.start()
+                logger.info(f"▶️ Step started: {step_name} (no timestamp)")
+        elif status == "completed":
+            completion_time = timestamp if isinstance(timestamp, (int, float)) else time.time()
+            logger.info(f"✅ Step completing: {step_name} at {completion_time}")
+            
+            step.status = StepStatus.COMPLETED
+            step.end_time = completion_time
+            if step.start_time:
+                step.duration = max(0.001, step.end_time - step.start_time)
+            else:
+                # If start_time is missing, set it just before end_time
+                step.start_time = completion_time - 0.001
+                step.duration = 0.001
+            
+            logger.info(f"✅ Step completed: {step_name} | duration={step.duration:.3f}s | start={step.start_time} | end={step.end_time}")
+        elif status == "failed":
+            if timestamp and isinstance(timestamp, (int, float)):
+                step.status = StepStatus.FAILED
+                step.end_time = timestamp
+                if step.start_time:
+                    step.duration = max(0.001, step.end_time - step.start_time)
+            else:
+                step.fail()
         
         # Calculate partial durations for in-progress steps (for real-time display)
-        # This ensures durations are always up-to-date before saving to Redis
         current_time = time.time()
         for step in steps_dict.values():
-            # Calculate partial duration for in-progress main steps (now all steps are main steps)
+            # Calculate partial duration for in-progress steps
             if step.status == StepStatus.IN_PROGRESS:
                 if step.start_time:
                     # Calculate duration from start_time to current time (real-time update)
@@ -934,14 +647,9 @@ async def process_document_background(
                     # If no start_time yet, set a minimal duration
                     step.duration = 0.001
             elif step.status == StepStatus.COMPLETED:
-                # Ensure completed steps have duration calculated (recalculate to be sure)
+                # Ensure completed steps have duration calculated
                 if step.start_time and step.end_time:
-                    # Recalculate duration to ensure accuracy
-                    calculated_duration = max(0.001, step.end_time - step.start_time)
-                    if step.duration is None or step.duration <= 0:
-                        step.duration = calculated_duration
-                    # Always ensure duration matches end_time - start_time for completed steps
-                    step.duration = calculated_duration
+                    step.duration = max(0.001, step.end_time - step.start_time)
                 elif step.start_time:
                     # If end_time is missing but start_time exists, use current time
                     if step.end_time is None:
@@ -954,26 +662,8 @@ async def process_document_background(
                     # No timing info at all, set minimal duration
                     if step.duration is None or step.duration <= 0:
                         step.duration = 0.001
-            
-            # Legacy: Handle sub-steps if they exist (for backward compatibility)
-            if step.sub_steps_detailed:
-                for sub_step in step.sub_steps_detailed:
-                    if sub_step.status == StepStatus.IN_PROGRESS and sub_step.start_time:
-                        # Calculate partial duration for in-progress sub-step
-                        partial_duration = current_time - sub_step.start_time
-                        if partial_duration > 0:
-                            sub_step.duration = partial_duration
-                    elif sub_step.status == StepStatus.COMPLETED and sub_step.duration is None:
-                        # Ensure completed sub-steps have duration calculated
-                        if sub_step.start_time and sub_step.end_time:
-                            sub_step.duration = max(0.001, sub_step.end_time - sub_step.start_time)
-                        elif sub_step.start_time:
-                            sub_step.end_time = current_time
-                            sub_step.duration = max(0.001, current_time - sub_step.start_time)
         
-        # Update Redis with current steps (always grouped consistently)
-        # This update happens after every step_callback call, ensuring real-time updates via SSE
-        # Serialize steps and ensure durations are included
+        # Update Redis with current steps
         serialized_steps = []
         for step in steps_dict.values():
             step_dict = step.model_dump(mode='json')
@@ -1018,12 +708,6 @@ async def process_document_background(
             "result": processing_result.model_dump(mode='json'),
             "updated_at": time.time()
         })
-        
-        # Final grouping is already done in step_callback before each Redis update
-        # But ensure all steps are grouped one final time before completion
-        for step in steps_dict.values():
-            if step.status == StepStatus.COMPLETED and step.sub_steps_detailed:
-                _group_small_substeps(step)
         
         # Save results
         redis_service.update_job(job_id, {

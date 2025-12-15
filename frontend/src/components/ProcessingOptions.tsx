@@ -4,11 +4,13 @@ import { ProcessingOptions as ProcessingOptionsType } from '@/services/api'
 
 interface ProcessingOptionsProps {
   onOptionsChange: (options: Partial<ProcessingOptionsType>) => void
+  initialOptions?: Partial<ProcessingOptionsType>
   disabled?: boolean
 }
 
 const ProcessingOptions: React.FC<ProcessingOptionsProps> = ({ 
   onOptionsChange, 
+  initialOptions,
   disabled = false 
 }) => {
   const [options, setOptions] = useState<Partial<ProcessingOptionsType>>({
@@ -17,7 +19,15 @@ const ProcessingOptions: React.FC<ProcessingOptionsProps> = ({
     extract_images: false,
     paginate_output: false,
     language: 'auto',
+    ...initialOptions,
   })
+  
+  // Sync with parent when initialOptions change
+  React.useEffect(() => {
+    if (initialOptions) {
+      setOptions(prev => ({ ...prev, ...initialOptions }))
+    }
+  }, [initialOptions])
 
   const updateOption = <K extends keyof ProcessingOptionsType>(
     key: K, 

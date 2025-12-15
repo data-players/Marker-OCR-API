@@ -191,6 +191,7 @@ const ProcessDocument: React.FC = () => {
             {/* Processing Options */}
             <ProcessingOptions
               onOptionsChange={handleOptionsChange}
+              initialOptions={state.processingOptions}
               disabled={state.isProcessing}
             />
 

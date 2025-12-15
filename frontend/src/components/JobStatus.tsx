@@ -83,6 +83,17 @@ const JobStatus: React.FC<JobStatusProps> = ({ jobId, onComplete }) => {
           apiService.downloadResult(jobId, 'json')
             .then((resultData) => {
               setResult(resultData)
+              // Auto-select preview format based on available formats
+              const hasMarkdown = resultData.result?.markdown_content && resultData.result.markdown_content !== null && resultData.result.markdown_content !== ''
+              const hasJson = resultData.result?.rich_structure && resultData.result.rich_structure !== null
+              if (hasJson && !hasMarkdown) {
+                // If only JSON is available, default to JSON preview
+                setPreviewFormat('json')
+              } else if (hasMarkdown && !hasJson) {
+                // If only Markdown is available, default to Markdown preview
+                setPreviewFormat('markdown')
+              }
+              // If both are available, keep the current selection (defaults to markdown)
             })
             .catch((err) => {
               console.error('Failed to load result:', err)
@@ -310,8 +321,13 @@ const JobStatus: React.FC<JobStatusProps> = ({ jobId, onComplete }) => {
 
       {result && (() => {
         // Determine which formats are available
-        const hasMarkdown = result.result?.markdown_content && result.result.markdown_content !== null && result.result.markdown_content !== ''
-        const hasJson = result.result?.rich_structure && result.result.rich_structure !== null
+        const hasMarkdown = result.result?.markdown_content && 
+                           result.result.markdown_content !== null && 
+                           result.result.markdown_content !== '' &&
+                           typeof result.result.markdown_content === 'string'
+        const hasJson = result.result?.rich_structure && 
+                       result.result.rich_structure !== null &&
+                       Object.keys(result.result.rich_structure).length > 0
         
         return (
         <div className="mt-6">
