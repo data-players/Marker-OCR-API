@@ -79,21 +79,20 @@ const JobStatus: React.FC<JobStatusProps> = ({ jobId, onComplete }) => {
         if (status.status === 'completed') {
           onComplete?.(status)
           
-          // Load the result with both formats
+          // Load the result
           apiService.downloadResult(jobId, 'json')
             .then((resultData) => {
               setResult(resultData)
-              // Auto-select preview format based on available formats
+              // Auto-select preview format based on available format
               const hasMarkdown = resultData.result?.markdown_content && resultData.result.markdown_content !== null && resultData.result.markdown_content !== ''
               const hasJson = resultData.result?.rich_structure && resultData.result.rich_structure !== null
               if (hasJson && !hasMarkdown) {
-                // If only JSON is available, default to JSON preview
+                // If JSON is available, default to JSON preview
                 setPreviewFormat('json')
               } else if (hasMarkdown && !hasJson) {
-                // If only Markdown is available, default to Markdown preview
+                // If Markdown is available, default to Markdown preview
                 setPreviewFormat('markdown')
               }
-              // If both are available, keep the current selection (defaults to markdown)
             })
             .catch((err) => {
               console.error('Failed to load result:', err)
@@ -197,7 +196,7 @@ const JobStatus: React.FC<JobStatusProps> = ({ jobId, onComplete }) => {
         return 'Processing document...'
       }
       case 'completed':
-        return 'Processing completed - Both formats generated successfully!'
+        return 'Processing completed successfully!'
       case 'failed':
         return 'Processing failed'
       case 'cancelled':

@@ -86,6 +86,9 @@ dev-logs: ## Show development logs
 dev-logs-backend: ## Show backend development logs
 	@docker compose -f $(COMPOSE_FILE_DEV) logs -f backend-dev
 
+dev-logs-backend-latest: ## Show last 250 lines of backend development logs (for agents)
+	@docker compose -f $(COMPOSE_FILE_DEV) logs --tail=250 backend-dev
+
 dev-logs-frontend: ## Show frontend development logs
 	@docker compose -f $(COMPOSE_FILE_DEV) logs -f frontend-dev
 

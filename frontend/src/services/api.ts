@@ -108,7 +108,7 @@ export interface FileUploadResponse {
 }
 
 export interface ProcessingOptions {
-  output_format: 'json' | 'markdown' | 'both'
+  output_format: 'json' | 'markdown'
   force_ocr: boolean
   extract_images: boolean
   paginate_output: boolean
@@ -208,7 +208,7 @@ export const apiService = {
   ): Promise<ProcessResponse> {
     const formData = new FormData()
     formData.append('file_id', fileId)
-    // Use the provided output_format, default to 'markdown' if not specified (not 'both')
+    // Use the provided output_format, default to 'markdown' if not specified
     formData.append('output_format', options.output_format || 'markdown')
     formData.append('force_ocr', String(options.force_ocr || false))
     formData.append('extract_images', String(options.extract_images !== false))

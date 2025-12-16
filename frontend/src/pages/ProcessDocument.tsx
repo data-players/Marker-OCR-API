@@ -79,7 +79,7 @@ const ProcessDocument: React.FC = () => {
     setState({
       step: 'upload',
       processingOptions: {
-        output_format: 'both',
+        output_format: 'markdown',
         force_ocr: false,
         extract_images: true,
         paginate_output: false,

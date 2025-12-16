@@ -51,11 +51,10 @@ const ProcessingOptions: React.FC<ProcessingOptionsProps> = ({
           <label className="block text-sm font-medium text-gray-700 mb-3">
             Output Format
           </label>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {[
               { value: 'json', label: 'JSON', desc: 'Structured data format' },
               { value: 'markdown', label: 'Markdown', desc: 'Human-readable text' },
-              { value: 'both', label: 'Both', desc: 'JSON + Markdown' },
             ].map(({ value, label, desc }) => (
               <button
                 key={value}

@@ -12,7 +12,6 @@ class OutputFormat(str, Enum):
     """Available output formats."""
     JSON = "json"
     MARKDOWN = "markdown"
-    BOTH = "both"
 
 
 class DocumentProcessRequest(BaseModel):

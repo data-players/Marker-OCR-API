@@ -10,6 +10,7 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exception_handlers import http_exception_handler
 import time
+import asyncio
 
 from app.core.config import settings
 from app.core.logger import setup_logging, get_logger
@@ -77,11 +78,25 @@ async def lifespan(app: FastAPI):
         logger.error(f"❌ Failed to load Marker models: {str(e)}")
         # Continue startup even if models fail to load - they can be loaded later
     
-    yield
+    try:
+        yield
+    except asyncio.CancelledError:
+        # Lifespan was cancelled (e.g., during hot reload)
+        # This is normal behavior - log at debug level and re-raise
+        logger.debug("Lifespan cancelled during hot reload")
+        raise
     
     # Shutdown
     logger.info("Shutting down Marker OCR API service")
-    await cleanup_services()
+    try:
+        await cleanup_services()
+    except asyncio.CancelledError:
+        # Cleanup was cancelled - this is normal during hot reload
+        logger.debug("Cleanup cancelled during hot reload")
+        raise
+    except Exception as e:
+        # Log other cleanup errors but don't fail shutdown
+        logger.warning(f"Error during cleanup: {str(e)}")
 
 
 # Create FastAPI application
@@ -96,7 +111,7 @@ app = FastAPI(
     * **PDF Upload**: Secure file upload with validation
     * **Document Processing**: Convert PDFs to JSON/Markdown with configurable options
     * **Background Processing**: Asynchronous processing with job tracking
-    * **Multiple Output Formats**: JSON, Markdown, or both
+    * **Multiple Output Formats**: JSON or Markdown
     * **Processing Options**: Fast, accurate, or OCR-only modes
     * **Health Monitoring**: Comprehensive health checks and metrics
     
@@ -141,23 +156,51 @@ async def add_process_time_header(request: Request, call_next):
     # Add request ID to context
     request_id = request.headers.get("X-Request-ID", f"req_{int(start_time)}")
     
-    response = await call_next(request)
+    try:
+        response = await call_next(request)
+        
+        process_time = time.time() - start_time
+        response.headers["X-Process-Time"] = str(process_time)
+        response.headers["X-Request-ID"] = request_id
+        
+        # Log request completion
+        logger.info(
+            "Request completed",
+            method=request.method,
+            url=str(request.url),
+            status_code=response.status_code,
+            process_time=process_time,
+            request_id=request_id
+        )
+        
+        return response
     
-    process_time = time.time() - start_time
-    response.headers["X-Process-Time"] = str(process_time)
-    response.headers["X-Request-ID"] = request_id
+    except asyncio.CancelledError:
+        # Request was cancelled (e.g., during hot reload)
+        # This is normal behavior and should not be logged as an error
+        # Don't re-raise to avoid 500 error - let it propagate naturally
+        logger.debug(
+            "Request cancelled",
+            method=request.method,
+            url=str(request.url),
+            request_id=request_id
+        )
+        # Re-raise CancelledError - it's expected during hot reload
+        # The exception handler will catch it and handle it gracefully
+        raise
     
-    # Log request completion
-    logger.info(
-        "Request completed",
-        method=request.method,
-        url=str(request.url),
-        status_code=response.status_code,
-        process_time=process_time,
-        request_id=request_id
-    )
-    
-    return response
+    except Exception as e:
+        # Log unexpected errors but don't break the request flow
+        process_time = time.time() - start_time
+        logger.error(
+            "Unexpected error in middleware",
+            method=request.method,
+            url=str(request.url),
+            request_id=request_id,
+            process_time=process_time,
+            error=str(e)
+        )
+        raise  # Re-raise to let FastAPI handle it
 
 
 # Custom exception handlers
@@ -226,6 +269,10 @@ async def validation_exception_handler(request: Request, exc: ValidationError):
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception):
     """Handle unexpected exceptions."""
+    # Skip CancelledError - it's handled separately
+    if isinstance(exc, asyncio.CancelledError):
+        raise
+    
     logger.error(
         "Unexpected error occurred",
         error_type=type(exc).__name__,

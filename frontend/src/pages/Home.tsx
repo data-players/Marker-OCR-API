@@ -23,7 +23,7 @@ const Home: React.FC = () => {
         
         <div className="bg-white p-6 rounded-lg shadow">
           <h3 className="text-xl font-semibold mb-2">Multiple Formats</h3>
-          <p className="text-gray-600">Get results in JSON, Markdown, or both</p>
+          <p className="text-gray-600">Get results in JSON or Markdown format</p>
         </div>
       </div>
       

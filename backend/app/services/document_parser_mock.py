@@ -114,14 +114,14 @@ class MockDocumentParserService(LoggerMixin):
             ] if extract_tables else [],
         }
         
-        if output_format in [OutputFormat.JSON, OutputFormat.BOTH]:
+        if output_format == OutputFormat.JSON:
             result["json_content"] = {
                 "text": mock_text,
                 "structure": self._extract_mock_structure(mock_text),
                 "metadata": result["metadata"]
             }
         
-        if output_format in [OutputFormat.MARKDOWN, OutputFormat.BOTH]:
+        if output_format == OutputFormat.MARKDOWN:
             result["markdown_content"] = self._convert_to_markdown(mock_text)
         
         return result

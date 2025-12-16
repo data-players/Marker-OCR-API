@@ -422,7 +422,7 @@ class DocumentParserService:
         
         Args:
             file_path: Path to the PDF file
-            output_format: Output format (json/markdown/both)
+            output_format: Output format (json or markdown)
             force_ocr: Force OCR even if text is extractable
             extract_images: Extract and include images in the output
             paginate_output: Add page separators in output
@@ -471,8 +471,8 @@ class DocumentParserService:
             def _process_document():
                 try:
                     # Determine what to generate based on output_format parameter
-                    need_json = output_format in [OutputFormat.JSON, OutputFormat.BOTH]
-                    need_markdown = output_format in [OutputFormat.MARKDOWN, OutputFormat.BOTH]
+                    need_json = output_format == OutputFormat.JSON
+                    need_markdown = output_format == OutputFormat.MARKDOWN
                     
                     logger.info(f"Processing with options: format={output_format.value}, "
                                f"force_ocr={force_ocr}, images={extract_images}, paginate_output={paginate_output}, lang={language}")
