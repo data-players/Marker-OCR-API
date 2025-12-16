@@ -16,7 +16,7 @@ from app.core.config import settings
 from app.core.logger import setup_logging, get_logger
 from app.core.exceptions import BaseAPIException
 from app.models.response_models import ErrorResponse
-from app.api.routes import health, documents
+from app.api.routes import health, documents, llm_analysis
 from app.api.dependencies import cleanup_services, get_document_parser
 from pydantic import ValidationError
 
@@ -307,6 +307,12 @@ app.include_router(
     documents.router,
     prefix="/api/v1",
     tags=["Documents"]
+)
+
+app.include_router(
+    llm_analysis.router,
+    prefix="/api/v1",
+    tags=["LLM Analysis"]
 )
 
 

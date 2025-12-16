@@ -159,6 +159,38 @@ export interface HealthStatus {
   services: Record<string, string>
 }
 
+export interface SchemaFieldDefinition {
+  type: 'string' | 'number' | 'integer' | 'boolean' | 'array' | 'object' | 'null'
+  description: string
+  required?: boolean
+  items?: Record<string, any>
+  properties?: Record<string, SchemaFieldDefinition>
+}
+
+export interface LLMAnalysisRequest {
+  job_id: string
+  introduction: string
+  schema: Record<string, SchemaFieldDefinition>
+}
+
+export interface LLMAnalysisResponse {
+  analysis_id: string
+  job_id: string
+  status: string
+  extracted_data?: Record<string, any>
+  error_message?: string
+  processing_time: number
+}
+
+export interface LLMAnalysisStatus {
+  analysis_id: string
+  job_id: string
+  status: string
+  progress?: number
+  extracted_data?: Record<string, any>
+  error_message?: string
+}
+
 // API service functions
 export const apiService = {
   // Health check
@@ -256,6 +288,20 @@ export const apiService = {
   // Delete file
   async deleteFile(fileId: string): Promise<void> {
     await apiClient.delete(`/documents/files/${fileId}`)
+  },
+
+  // LLM Analysis
+  async analyzeLLM(request: LLMAnalysisRequest): Promise<LLMAnalysisResponse> {
+    const response = await apiClient.post<LLMAnalysisResponse>(
+      '/llm/analyze',
+      request
+    )
+    return response.data
+  },
+
+  async getLLMAnalysisStatus(analysisId: string): Promise<LLMAnalysisStatus> {
+    const response = await apiClient.get<LLMAnalysisStatus>(`/llm/analyze/${analysisId}`)
+    return response.data
   },
 
   // Server-Sent Events for real-time job status updates

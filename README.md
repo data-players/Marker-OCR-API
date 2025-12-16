@@ -41,6 +41,23 @@ make dev
 - **API Backend** : http://localhost:8000 (hot reloading) 
 - **Documentation API** : http://localhost:8000/docs
 
+## ✨ Fonctionnalités
+
+### 🔤 OCR avec Marker
+- Conversion PDF vers Markdown/JSON avec haute précision
+- Support des images et tableaux
+- Traitement asynchrone avec suivi en temps réel
+- Options configurables (force OCR, pagination, extraction d'images)
+
+### 🤖 Analyse LLM (Nouveau !)
+- **Extraction structurée de données** après l'OCR
+- Définissez votre propre schéma JSON avec types et descriptions
+- Le LLM extrait automatiquement les informations selon votre schéma
+- Support des factures, CV, contrats, et tout type de document
+- Interface intuitive pour créer des schémas personnalisés
+
+**📖 Guide complet** : [LLM_ANALYSIS_GUIDE.md](LLM_ANALYSIS_GUIDE.md)
+
 ## 🏗️ Architecture
 
 ### Environnements Docker

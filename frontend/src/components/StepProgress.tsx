@@ -91,7 +91,7 @@ const StepProgress: React.FC<StepProgressProps> = ({ steps, isCompleted = false 
           aria-expanded={isExpanded}
           aria-label={isExpanded ? 'Masquer les étapes' : 'Afficher les étapes'}
         >
-          <h3 className="font-medium text-gray-900 flex-shrink-0">Processing Steps</h3>
+          <h3 className="font-medium text-gray-900 flex-shrink-0">OCR Steps</h3>
           <div className="flex items-center gap-2 flex-shrink-0">
             {allStepsCompleted && (
               <span className="text-xs font-mono text-green-700 bg-green-100 px-2 py-1 rounded">
@@ -106,7 +106,7 @@ const StepProgress: React.FC<StepProgressProps> = ({ steps, isCompleted = false 
           </div>
         </button>
       ) : (
-        <h3 className="font-medium text-gray-900 mb-4">Processing Steps</h3>
+        <h3 className="font-medium text-gray-900 mb-4">OCR Steps</h3>
       )}
       
       {/* Steps container with accordion animation */}

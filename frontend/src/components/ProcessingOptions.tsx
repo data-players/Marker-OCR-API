@@ -6,12 +6,14 @@ interface ProcessingOptionsProps {
   onOptionsChange: (options: Partial<ProcessingOptionsType>) => void
   initialOptions?: Partial<ProcessingOptionsType>
   disabled?: boolean
+  compact?: boolean
 }
 
 const ProcessingOptions: React.FC<ProcessingOptionsProps> = ({ 
   onOptionsChange, 
   initialOptions,
-  disabled = false 
+  disabled = false,
+  compact = false
 }) => {
   const [options, setOptions] = useState<Partial<ProcessingOptionsType>>({
     output_format: 'markdown',
@@ -38,14 +40,8 @@ const ProcessingOptions: React.FC<ProcessingOptionsProps> = ({
     onOptionsChange(newOptions)
   }
 
-  return (
-    <div className="bg-white rounded-lg shadow p-6">
-      <div className="flex items-center mb-6">
-        <Settings className="h-5 w-5 text-gray-600 mr-2" />
-        <h3 className="text-lg font-semibold text-gray-900">Processing Options</h3>
-      </div>
-
-      <div className="space-y-6">
+  const content = (
+    <div className="space-y-6">
         {/* Output Format */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-3">
@@ -149,7 +145,20 @@ const ProcessingOptions: React.FC<ProcessingOptionsProps> = ({
             <option value="ko">Korean</option>
           </select>
         </div>
+    </div>
+  )
+
+  if (compact) {
+    return content
+  }
+
+  return (
+    <div className="bg-white rounded-lg shadow p-6">
+      <div className="flex items-center mb-6">
+        <Settings className="h-5 w-5 text-gray-600 mr-2" />
+        <h3 className="text-lg font-semibold text-gray-900">OCR Options</h3>
       </div>
+      {content}
     </div>
   )
 }

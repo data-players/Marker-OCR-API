@@ -11,12 +11,14 @@ from app.core.config import settings
 from app.services.file_handler import FileHandlerService
 from app.services.document_parser import DocumentParserService
 from app.services.redis_service import RedisService
+from app.services.llm_service import LLMService
 
 
 # Service instances (singletons)
 _file_handler_instance: Optional[FileHandlerService] = None
 _document_parser_instance: Optional[DocumentParserService] = None
 _redis_instance: Optional[RedisService] = None
+_llm_service_instance: Optional[LLMService] = None
 
 
 @lru_cache()
@@ -59,6 +61,20 @@ def get_redis() -> RedisService:
         _redis_instance = RedisService()
     
     return _redis_instance
+
+
+@lru_cache()
+def get_llm_service() -> LLMService:
+    """
+    Get singleton instance of LLMService.
+    Uses LRU cache to ensure single instance across requests.
+    """
+    global _llm_service_instance
+    
+    if _llm_service_instance is None:
+        _llm_service_instance = LLMService()
+    
+    return _llm_service_instance
 
 
 
@@ -191,12 +207,16 @@ async def cleanup_services():
     Cleanup function to be called on application shutdown.
     Ensures proper resource cleanup for all services.
     """
-    global _file_handler_instance, _document_parser_instance
+    global _file_handler_instance, _document_parser_instance, _llm_service_instance
     
     try:
         if _document_parser_instance:
             await _document_parser_instance.shutdown()
             _document_parser_instance = None
+        
+        if _llm_service_instance:
+            await _llm_service_instance.shutdown()
+            _llm_service_instance = None
         
         # File handler doesn't need async cleanup, but we reset the instance
         _file_handler_instance = None

@@ -219,6 +219,92 @@ class RedisService:
         except Exception as e:
             logger.error(f"Redis ping failed: {str(e)}")
             return False
+    
+    def store_analysis(self, analysis_id: str, analysis_data: Dict[str, Any], ttl: int = 86400) -> bool:
+        """
+        Store LLM analysis data in Redis with TTL.
+        
+        Args:
+            analysis_id: Unique analysis identifier
+            analysis_data: Analysis data dictionary
+            ttl: Time to live in seconds (default 24 hours)
+            
+        Returns:
+            True if stored successfully
+        """
+        try:
+            key = f"analysis:{analysis_id}"
+            value = json.dumps(analysis_data)
+            self.client.setex(key, ttl, value)
+            logger.debug(f"Stored analysis {analysis_id} in Redis")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to store analysis {analysis_id}: {str(e)}")
+            return False
+    
+    def get_analysis(self, analysis_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get LLM analysis data from Redis.
+        
+        Args:
+            analysis_id: Unique analysis identifier
+            
+        Returns:
+            Analysis data dictionary or None if not found
+        """
+        try:
+            key = f"analysis:{analysis_id}"
+            value = self.client.get(key)
+            if value:
+                return json.loads(value)
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get analysis {analysis_id}: {str(e)}")
+            return None
+    
+    def update_analysis(self, analysis_id: str, updates: Dict[str, Any], ttl: int = 86400) -> bool:
+        """
+        Update LLM analysis data in Redis.
+        
+        Args:
+            analysis_id: Unique analysis identifier
+            updates: Dictionary of fields to update
+            ttl: Time to live in seconds (default 24 hours)
+            
+        Returns:
+            True if updated successfully
+        """
+        try:
+            existing_data = self.get_analysis(analysis_id)
+            if existing_data is None:
+                logger.warning(f"Analysis {analysis_id} not found for update")
+                return False
+            
+            # Merge updates
+            existing_data.update(updates)
+            return self.store_analysis(analysis_id, existing_data, ttl)
+        except Exception as e:
+            logger.error(f"Failed to update analysis {analysis_id}: {str(e)}")
+            return False
+    
+    def delete_analysis(self, analysis_id: str) -> bool:
+        """
+        Delete LLM analysis data from Redis.
+        
+        Args:
+            analysis_id: Unique analysis identifier
+            
+        Returns:
+            True if deleted successfully
+        """
+        try:
+            key = f"analysis:{analysis_id}"
+            self.client.delete(key)
+            logger.debug(f"Deleted analysis {analysis_id} from Redis")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to delete analysis {analysis_id}: {str(e)}")
+            return False
 
 
 

@@ -1,21 +1,25 @@
 import React, { useState } from 'react'
-import { Play, ArrowRight } from 'lucide-react'
+import { Play, ArrowRight, ArrowLeft, ChevronDown, ChevronUp, Settings, Upload as UploadIcon, RotateCcw } from 'lucide-react'
 import FileUpload from '@/components/FileUpload'
 import ProcessingOptions from '@/components/ProcessingOptions'
 import JobStatus from '@/components/JobStatus'
+import LLMAnalysis from '@/components/LLMAnalysis'
 import { 
   FileUploadResponse, 
   ProcessingOptions as ProcessingOptionsType,
   ProcessResponse,
+  JobStatus as JobStatusType,
   apiService 
 } from '@/services/api'
 
 interface ProcessingState {
-  step: 'upload' | 'configure' | 'processing'
+  step: 'upload' | 'processing' | 'llm-analysis'
   uploadedFile?: FileUploadResponse
   processingOptions: Partial<ProcessingOptionsType>
   currentJob?: string
   isProcessing: boolean
+  jobCompleted: boolean
+  parametersExpanded: boolean
 }
 
 const ProcessDocument: React.FC = () => {
@@ -29,13 +33,16 @@ const ProcessDocument: React.FC = () => {
       language: 'auto',
     },
     isProcessing: false,
+    jobCompleted: false,
+    parametersExpanded: true,
   })
 
   const handleFileUploaded = (uploadResponse: FileUploadResponse) => {
     setState(prev => ({
       ...prev,
       uploadedFile: uploadResponse,
-      step: 'configure',
+      step: 'processing',
+      parametersExpanded: true,
     }))
   }
 
@@ -49,7 +56,12 @@ const ProcessDocument: React.FC = () => {
   const handleStartProcessing = async () => {
     if (!state.uploadedFile) return
 
-    setState(prev => ({ ...prev, isProcessing: true }))
+    setState(prev => ({ 
+      ...prev, 
+      isProcessing: true,
+      parametersExpanded: false,
+      jobCompleted: false,
+    }))
 
     try {
       const response: ProcessResponse = await apiService.processDocument(
@@ -65,14 +77,28 @@ const ProcessDocument: React.FC = () => {
       }))
     } catch (error: any) {
       console.error('Failed to start processing:', error)
-      setState(prev => ({ ...prev, isProcessing: false }))
+      setState(prev => ({ 
+        ...prev, 
+        isProcessing: false,
+        parametersExpanded: true,
+      }))
       // TODO: Show error toast
     }
   }
 
-  const handleJobComplete = () => {
-    // Job completed, could show success message or reset
+  const handleJobComplete = (jobStatus: JobStatusType) => {
+    // Job completed, show choice between new document or LLM analysis
     console.log('Job completed successfully!')
+    setState(prev => ({ ...prev, jobCompleted: true }))
+  }
+
+  const handleStartLLMAnalysis = () => {
+    setState(prev => ({ ...prev, step: 'llm-analysis' }))
+  }
+
+  const handleLLMAnalysisComplete = (data: Record<string, any>) => {
+    console.log('LLM analysis completed:', data)
+    // Could show success toast or store the data
   }
 
   const resetWorkflow = () => {
@@ -81,23 +107,32 @@ const ProcessDocument: React.FC = () => {
       processingOptions: {
         output_format: 'markdown',
         force_ocr: false,
-        extract_images: true,
+        extract_images: false,
         paginate_output: false,
         language: 'auto',
       },
       isProcessing: false,
+      jobCompleted: false,
+      parametersExpanded: true,
     })
+  }
+
+  const toggleParameters = () => {
+    setState(prev => ({ 
+      ...prev, 
+      parametersExpanded: !prev.parametersExpanded 
+    }))
   }
 
   const renderStepIndicator = () => {
     const steps = [
       { key: 'upload', label: 'Upload', completed: !!state.uploadedFile },
-      { key: 'configure', label: 'Configure', completed: state.step === 'processing' },
-      { key: 'processing', label: 'Process', completed: false },
+      { key: 'processing', label: 'OCR', completed: state.jobCompleted },
+      { key: 'llm-analysis', label: 'LLM', completed: false },
     ]
 
     return (
-      <div className="flex items-center justify-center mb-8">
+      <div className="flex items-center justify-center">
         {steps.map((step, index) => (
           <React.Fragment key={step.key}>
             <div className="flex items-center">
@@ -138,114 +173,154 @@ const ProcessDocument: React.FC = () => {
   return (
     <div className="max-w-4xl mx-auto">
       <div className="mb-8">
-        <h2 className="text-3xl font-bold text-gray-900 mb-2">
-          Process Document
-        </h2>
-        <p className="text-gray-600">
-          Upload and process PDF documents using the Marker OCR API.
-        </p>
+        {renderStepIndicator()}
       </div>
-
-      {renderStepIndicator()}
 
       <div className="space-y-6">
         {/* Step 1: Upload */}
         {state.step === 'upload' && (
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              Upload Your PDF Document
-            </h3>
-            <FileUpload 
-              onFileUploaded={handleFileUploaded}
-              disabled={state.isProcessing}
-            />
+          <div className="bg-white rounded-lg shadow overflow-hidden">
+            {/* Header */}
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center">
+                <UploadIcon className="h-6 w-6 text-green-600 mr-2" />
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900">
+                    Upload Document
+                  </h3>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Select a PDF document to process with OCR
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Upload Area */}
+            <div className="p-6">
+              <FileUpload 
+                onFileUploaded={handleFileUploaded}
+                disabled={state.isProcessing}
+              />
+            </div>
           </div>
         )}
 
-        {/* Step 2: Configure */}
-        {state.step === 'configure' && (
+        {/* Step 2: OCR Processing (with options accordion) */}
+        {state.step === 'processing' && (
           <>
-            {/* File Summary */}
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                Uploaded File
-              </h3>
-              <div className="flex items-center justify-between p-4 bg-green-50 border border-green-200 rounded-lg">
-                <div>
-                  <p className="font-medium text-green-900">
-                    {state.uploadedFile?.filename}
-                  </p>
-                  <p className="text-sm text-green-700">
-                    Size: {state.uploadedFile?.size ? (state.uploadedFile.size / 1024 / 1024).toFixed(2) : '?'} MB
-                  </p>
+            <div className="bg-white rounded-lg shadow overflow-hidden">
+              {/* Header */}
+              <div className="p-6 border-b border-gray-200">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center flex-1">
+                    <Play className="h-6 w-6 text-blue-600 mr-2" />
+                    <div>
+                      <h3 className="text-xl font-bold text-gray-900">
+                        OCR Processing
+                      </h3>
+                      <p className="text-sm text-gray-600 mt-1">
+                        {state.uploadedFile?.filename} ({state.uploadedFile?.size ? (state.uploadedFile.size / 1024 / 1024).toFixed(2) : '?'} MB)
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={resetWorkflow}
+                    className="flex items-center text-sm text-gray-600 hover:text-gray-800 transition-colors"
+                  >
+                    <RotateCcw className="h-4 w-4 mr-1" />
+                    Restart
+                  </button>
                 </div>
-                <button
-                  onClick={resetWorkflow}
-                  className="text-green-700 hover:text-green-800 underline text-sm"
-                >
-                  Upload different file
-                </button>
               </div>
-            </div>
 
-            {/* Processing Options */}
-            <ProcessingOptions
-              onOptionsChange={handleOptionsChange}
-              initialOptions={state.processingOptions}
-              disabled={state.isProcessing}
-            />
+              {/* Parameters Accordion */}
+              <div className="border-b border-gray-200">
+                <button
+                  onClick={toggleParameters}
+                  className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+                >
+                  <div className="flex items-center">
+                    <Settings className="h-5 w-5 text-gray-600 mr-2" />
+                    <span className="font-medium text-gray-900">
+                      OCR Options
+                    </span>
+                  </div>
+                  {state.parametersExpanded ? (
+                    <ChevronUp className="h-5 w-5 text-gray-600" />
+                  ) : (
+                    <ChevronDown className="h-5 w-5 text-gray-600" />
+                  )}
+                </button>
+                
+                {state.parametersExpanded && (
+                  <div className="px-6 pb-6">
+                    <ProcessingOptions
+                      onOptionsChange={handleOptionsChange}
+                      initialOptions={state.processingOptions}
+                      disabled={state.isProcessing}
+                      compact={true}
+                    />
+                    
+                    {/* Start/Restart OCR Button */}
+                    <div className="mt-6 flex justify-end">
+                      <button
+                        onClick={handleStartProcessing}
+                        disabled={state.isProcessing}
+                        className="flex items-center px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        <Play className="h-5 w-5 mr-2" />
+                        {state.currentJob 
+                          ? (state.isProcessing ? 'Processing...' : 'Restart')
+                          : (state.isProcessing ? 'Processing...' : 'Start')
+                        }
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
 
-            {/* Start Processing Button */}
-            <div className="bg-white rounded-lg shadow p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900">
-                    Ready to Process
-                  </h3>
-                  <p className="text-gray-600">
-                    Start processing your document with the selected options.
-                  </p>
+              {/* Action buttons after OCR completion */}
+              {state.currentJob && state.jobCompleted && (
+                <div className="border-b border-gray-200 px-6 py-4 bg-gray-50">
+                  <div className="flex items-center justify-center space-x-3">
+                    <button
+                      onClick={resetWorkflow}
+                      className="flex items-center px-4 py-2 text-sm border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors bg-white"
+                    >
+                      <ArrowLeft className="h-4 w-4 mr-2" />
+                      New Document
+                    </button>
+                    <button
+                      onClick={handleStartLLMAnalysis}
+                      className="flex items-center px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                    >
+                      LLM Analysis
+                      <ArrowRight className="h-4 w-4 ml-2" />
+                    </button>
+                  </div>
                 </div>
-                <button
-                  onClick={handleStartProcessing}
-                  disabled={state.isProcessing}
-                  className="flex items-center px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  <Play className="h-5 w-5 mr-2" />
-                  {state.isProcessing ? 'Starting...' : 'Start Processing'}
-                </button>
-              </div>
+              )}
+
+              {/* Job Status (if processing has started) */}
+              {state.currentJob && (
+                <div className="p-4 bg-gray-50">
+                  <JobStatus
+                    jobId={state.currentJob}
+                    onComplete={handleJobComplete}
+                  />
+                </div>
+              )}
             </div>
           </>
         )}
 
-        {/* Step 3: Processing */}
-        {state.step === 'processing' && state.currentJob && (
-          <>
-            <JobStatus
-              jobId={state.currentJob}
-              onComplete={handleJobComplete}
-            />
-            
-            <div className="bg-white rounded-lg shadow p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900">
-                    Process Another Document
-                  </h3>
-                  <p className="text-gray-600">
-                    Start a new processing job with a different document.
-                  </p>
-                </div>
-                <button
-                  onClick={resetWorkflow}
-                  className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  New Document
-                </button>
-              </div>
-            </div>
-          </>
+        {/* Step 3: LLM Analysis */}
+        {state.step === 'llm-analysis' && state.currentJob && (
+          <LLMAnalysis
+            jobId={state.currentJob}
+            onAnalysisComplete={handleLLMAnalysisComplete}
+            onRestart={resetWorkflow}
+          />
         )}
       </div>
     </div>

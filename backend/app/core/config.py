@@ -51,6 +51,31 @@ class Settings(BaseSettings):
     # Security
     api_key: Optional[str] = Field(default=None, description="API key for authentication")
     
+    # LLM Configuration (Infomaniak API)
+    llm_product_id: str = Field(
+        default="",
+        description="Infomaniak product ID for AI API"
+    )
+    llm_api_token: str = Field(
+        default="",
+        description="Infomaniak API Bearer token for authentication"
+    )
+    llm_model: str = Field(
+        default="mistral3",
+        description="LLM model to use (e.g., mistral3, gpt-3.5-turbo, gpt-4)"
+    )
+    llm_timeout: int = Field(
+        default=60,
+        description="LLM API timeout in seconds"
+    )
+    
+    @property
+    def llm_api_url(self) -> str:
+        """Construct the full Infomaniak API URL with product_id."""
+        if not self.llm_product_id:
+            return ""
+        return f"https://api.infomaniak.com/1/ai/{self.llm_product_id}/openai/chat/completions"
+    
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

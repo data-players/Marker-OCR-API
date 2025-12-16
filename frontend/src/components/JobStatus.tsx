@@ -1,10 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { 
-  Clock, 
   CheckCircle, 
-  XCircle, 
-  Loader, 
-  Download, 
   Eye,
   FileText,
   Database,
@@ -24,11 +20,12 @@ const JobStatus: React.FC<JobStatusProps> = ({ jobId, onComplete }) => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<any>(null)
-  const [processingStartTime, setProcessingStartTime] = useState<Date | null>(null)
   const [previewFormat, setPreviewFormat] = useState<'markdown' | 'json'>('markdown')
   const [copiedMarkdown, setCopiedMarkdown] = useState(false)
   const [copiedJson, setCopiedJson] = useState(false)
   const eventSourceRef = useRef<(() => void) | null>(null)
+  const processingStartTimeRef = useRef<Date | null>(null)
+  const hasDownloadedResultRef = useRef<boolean>(false)
 
   useEffect(() => {
     // Fetch initial status immediately to show steps right away
@@ -43,8 +40,8 @@ const JobStatus: React.FC<JobStatusProps> = ({ jobId, onComplete }) => {
         setLoading(false)
         
         // Track when processing starts for the first time
-        if (initialStatus.status === 'processing' && !processingStartTime) {
-          setProcessingStartTime(new Date())
+        if (initialStatus.status === 'processing' && !processingStartTimeRef.current) {
+          processingStartTimeRef.current = new Date()
         }
       })
       .catch((err) => {
@@ -72,31 +69,35 @@ const JobStatus: React.FC<JobStatusProps> = ({ jobId, onComplete }) => {
         setLoading(false)
         
         // Track when processing starts for the first time
-        if (status.status === 'processing' && !processingStartTime) {
-          setProcessingStartTime(new Date())
+        if (status.status === 'processing' && !processingStartTimeRef.current) {
+          processingStartTimeRef.current = new Date()
         }
         
         if (status.status === 'completed') {
-          onComplete?.(status)
-          
-          // Load the result
-          apiService.downloadResult(jobId, 'json')
-            .then((resultData) => {
-              setResult(resultData)
-              // Auto-select preview format based on available format
-              const hasMarkdown = resultData.result?.markdown_content && resultData.result.markdown_content !== null && resultData.result.markdown_content !== ''
-              const hasJson = resultData.result?.rich_structure && resultData.result.rich_structure !== null
-              if (hasJson && !hasMarkdown) {
-                // If JSON is available, default to JSON preview
-                setPreviewFormat('json')
-              } else if (hasMarkdown && !hasJson) {
-                // If Markdown is available, default to Markdown preview
-                setPreviewFormat('markdown')
-              }
-            })
-            .catch((err) => {
-              console.error('Failed to load result:', err)
-            })
+          // Only call onComplete and download result ONCE
+          if (!hasDownloadedResultRef.current) {
+            hasDownloadedResultRef.current = true
+            onComplete?.(status)
+            
+            // Load the result only once
+            apiService.downloadResult(jobId, 'json')
+              .then((resultData) => {
+                setResult(resultData)
+                // Auto-select preview format based on available format
+                const hasMarkdown = resultData.result?.markdown_content && resultData.result.markdown_content !== null && resultData.result.markdown_content !== ''
+                const hasJson = resultData.result?.rich_structure && resultData.result.rich_structure !== null
+                if (hasJson && !hasMarkdown) {
+                  // If JSON is available, default to JSON preview
+                  setPreviewFormat('json')
+                } else if (hasMarkdown && !hasJson) {
+                  // If Markdown is available, default to Markdown preview
+                  setPreviewFormat('markdown')
+                }
+              })
+              .catch((err) => {
+                console.error('Failed to load result:', err)
+              })
+          }
         } else if (status.status === 'failed' || status.status === 'cancelled') {
           // Error message is already in status.error_message
         }
@@ -117,45 +118,7 @@ const JobStatus: React.FC<JobStatusProps> = ({ jobId, onComplete }) => {
         eventSourceRef.current = null
       }
     }
-  }, [jobId, onComplete, processingStartTime])
-
-  const getStatusIcon = () => {
-    if (!jobStatus) return <Loader className="h-5 w-5 animate-spin text-blue-500" />
-    
-    switch (jobStatus.status) {
-      case 'pending':
-        return <Clock className="h-5 w-5 text-yellow-500" />
-      case 'processing':
-        return <Loader className="h-5 w-5 animate-spin text-blue-500" />
-      case 'completed':
-        return <CheckCircle className="h-5 w-5 text-green-500" />
-      case 'failed':
-        return <XCircle className="h-5 w-5 text-red-500" />
-      case 'cancelled':
-        return <XCircle className="h-5 w-5 text-gray-500" />
-      default:
-        return <Clock className="h-5 w-5 text-gray-500" />
-    }
-  }
-
-  const getStatusColor = () => {
-    if (!jobStatus) return 'bg-blue-50 border-blue-200'
-    
-    switch (jobStatus.status) {
-      case 'pending':
-        return 'bg-yellow-50 border-yellow-200'
-      case 'processing':
-        return 'bg-blue-50 border-blue-200'
-      case 'completed':
-        return 'bg-green-50 border-green-200'
-      case 'failed':
-        return 'bg-red-50 border-red-200'
-      case 'cancelled':
-        return 'bg-gray-50 border-gray-200'
-      default:
-        return 'bg-gray-50 border-gray-200'
-    }
-  }
+  }, [jobId, onComplete])
 
   const formatDuration = (duration: number) => {
     if (duration < 1) {
@@ -175,35 +138,6 @@ const JobStatus: React.FC<JobStatusProps> = ({ jobId, onComplete }) => {
     }
     const totalDuration = jobStatus.steps.reduce((sum, step) => sum + (step.duration || 0), 0)
     return totalDuration > 0 ? totalDuration : null
-  }
-
-  const getStatusText = () => {
-    if (!jobStatus) return 'Loading...'
-    
-    const getProcessingDuration = () => {
-      if (!processingStartTime) return 0
-      return (new Date().getTime() - processingStartTime.getTime()) / 1000
-    }
-    
-    switch (jobStatus.status) {
-      case 'pending':
-        return 'Queued for processing'
-      case 'processing': {
-        const duration = getProcessingDuration()
-        if (duration > 30) {
-          return 'Processing document... (downloading AI models for first use, this may take a few minutes)'
-        }
-        return 'Processing document...'
-      }
-      case 'completed':
-        return 'Processing completed successfully!'
-      case 'failed':
-        return 'Processing failed'
-      case 'cancelled':
-        return 'Processing cancelled'
-      default:
-        return jobStatus.status
-    }
   }
 
   const handleDownload = async (format: 'json' | 'markdown') => {
@@ -265,19 +199,7 @@ const JobStatus: React.FC<JobStatusProps> = ({ jobId, onComplete }) => {
 
   return (
     <>
-      <div className={`border rounded-lg p-6 ${getStatusColor()}`}>
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center flex-1 min-w-0">
-            {getStatusIcon()}
-            <div className="ml-3 flex-1 min-w-0">
-              <div className="flex items-center justify-between">
-                <h3 className="font-medium text-gray-900">Processing Status</h3>
-              </div>
-              <p className="text-sm text-gray-600">{getStatusText()}</p>
-            </div>
-          </div>
-        </div>
-
+      <div className="border rounded-lg p-6 bg-white">
       {/* Show step progress if available, otherwise show old progress bar */}
       {/* Always show steps if they exist, even if empty (they will be populated via SSE) */}
       {jobStatus?.steps !== undefined ? (
