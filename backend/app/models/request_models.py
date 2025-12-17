@@ -86,4 +86,107 @@ class BatchProcessRequest(BaseModel):
         """Validate file IDs format."""
         if not v:
             raise ValueError('At least one file ID is required')
-        return v 
+        return v
+
+
+class CombinedAnalysisRequest(BaseModel):
+    """Request model for combined OCR + LLM analysis from URL."""
+    
+    url: str = Field(
+        description="URL of the document to process",
+        examples=["https://example.com/invoice.pdf"]
+    )
+    
+    introduction: str = Field(
+        default="",
+        description="Introduction text explaining the extraction task to the LLM",
+        examples=["Extract key invoice information including vendor details, line items, and totals"]
+    )
+    
+    schema: dict = Field(
+        description="JSON schema defining the expected structure for LLM extraction",
+        examples=[{
+            "vendor_name": {
+                "type": "string",
+                "description": "Name of the vendor/company",
+                "required": True
+            },
+            "invoice_number": {
+                "type": "string",
+                "description": "Invoice reference number",
+                "required": True
+            },
+            "total_amount": {
+                "type": "number",
+                "description": "Total invoice amount",
+                "required": True
+            },
+            "line_items": {
+                "type": "array",
+                "description": "List of items with description and price",
+                "required": False
+            },
+            "vendor_address": {
+                "type": "object",
+                "description": "Vendor address information",
+                "required": False,
+                "properties": {
+                    "street": {"type": "string", "description": "Street address"},
+                    "city": {"type": "string", "description": "City"},
+                    "postal_code": {"type": "string", "description": "Postal code"}
+                }
+            }
+        }]
+    )
+    
+    ocr_options: Optional[DocumentProcessRequest] = Field(
+        default_factory=DocumentProcessRequest,
+        description="OCR processing options (output_format, force_ocr, etc.)"
+    )
+    
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "url": "https://example.com/invoice.pdf",
+                    "introduction": "Extract invoice information with line items and vendor address",
+                    "schema": {
+                        "vendor_name": {
+                            "type": "string",
+                            "description": "Name of the vendor",
+                            "required": True
+                        },
+                        "invoice_number": {
+                            "type": "string",
+                            "description": "Invoice number",
+                            "required": True
+                        },
+                        "total_amount": {
+                            "type": "number",
+                            "description": "Total amount",
+                            "required": True
+                        },
+                        "line_items": {
+                            "type": "array",
+                            "description": "List of invoice line items",
+                            "required": False
+                        },
+                        "vendor_address": {
+                            "type": "object",
+                            "description": "Vendor address details",
+                            "required": False,
+                            "properties": {
+                                "street": {"type": "string", "description": "Street address"},
+                                "city": {"type": "string", "description": "City name"},
+                                "postal_code": {"type": "string", "description": "Postal/ZIP code"}
+                            }
+                        }
+                    },
+                    "ocr_options": {
+                        "output_format": "markdown",
+                        "force_ocr": False
+                    }
+                }
+            ]
+        }
+    } 

@@ -101,3 +101,81 @@ class LLMAnalysisStatus(BaseModel):
         description="Error message (if failed)"
     )
 
+
+class CombinedAnalysisResponse(BaseModel):
+    """Response from combined analysis submission."""
+    
+    combined_job_id: str = Field(
+        description="Unique identifier for the combined analysis job"
+    )
+    status: str = Field(
+        description="Initial job status"
+    )
+    message: str = Field(
+        description="Status message"
+    )
+    phases: list[str] = Field(
+        description="List of processing phases"
+    )
+
+
+class CombinedAnalysisResult(BaseModel):
+    """Final result from combined analysis."""
+    
+    extracted_data: Dict[str, Any] = Field(
+        description="Extracted structured data matching the schema"
+    )
+    ocr_content: str = Field(
+        description="Full OCR text content"
+    )
+    total_processing_time: float = Field(
+        description="Total processing time in seconds"
+    )
+    ocr_processing_time: float = Field(
+        description="OCR processing time in seconds"
+    )
+    llm_processing_time: float = Field(
+        description="LLM analysis time in seconds"
+    )
+
+
+class CombinedJobStatus(BaseModel):
+    """Simplified status of a combined analysis job."""
+    
+    job_id: str = Field(
+        description="Job identifier"
+    )
+    extracted_data: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Extracted structured data (when completed)"
+    )
+    ocr_result: Optional[str] = Field(
+        default=None,
+        description="OCR text content (when OCR is completed)"
+    )
+    status: str = Field(
+        description="Job status (pending, processing, completed, failed)"
+    )
+    current_phase: Optional[str] = Field(
+        default=None,
+        description="Current processing phase"
+    )
+    error_message: Optional[str] = Field(
+        default=None,
+        description="Error message (if failed)"
+    )
+
+
+class CombinedAnalysisSyncResult(BaseModel):
+    """Synchronous combined analysis result (direct response)."""
+    
+    extracted_data: Dict[str, Any] = Field(
+        description="Extracted structured data matching the schema"
+    )
+    ocr_result: str = Field(
+        description="Full OCR text content"
+    )
+    processing_time: float = Field(
+        description="Total processing time in seconds"
+    )
+

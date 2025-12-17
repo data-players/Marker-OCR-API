@@ -23,8 +23,8 @@ class Settings(BaseSettings):
     
     # CORS
     cors_origins: List[str] = Field(
-        default=["http://localhost:3000", "http://localhost:8080"],
-        description="Allowed CORS origins"
+        default=["*"],
+        description="Allowed CORS origins (use ['*'] for all origins or specify list)"
     )
     
     # File handling

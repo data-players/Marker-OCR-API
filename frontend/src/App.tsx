@@ -7,6 +7,7 @@ import ModelLoadingScreen from '@/components/ModelLoadingScreen'
 import Home from '@/pages/Home'
 import ProcessDocument from '@/pages/ProcessDocument'  
 import JobStatus from '@/pages/JobStatus'
+import ApiDocs from '@/pages/ApiDocs'
 import NotFound from '@/pages/NotFound'
 
 function App() {
@@ -56,6 +57,8 @@ function App() {
           <Route path="/" element={<Home />} />
           <Route path="/process" element={<ProcessDocument />} />
           <Route path="/job/:jobId" element={<JobStatus />} />
+          <Route path="/api" element={<ApiDocs />} />
+          <Route path="/api/*" element={<ApiDocs />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </Layout>
