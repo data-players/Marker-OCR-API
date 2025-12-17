@@ -15,8 +15,10 @@ module.exports = {
   ],
   coverageDirectory: 'coverage',
   coverageReporters: ['text', 'lcov', 'html'],
+  // All tests are centralized in tests/frontend/ (mounted at /app/tests in Docker)
   testMatch: [
-    '<rootDir>/src/**/__tests__/**/*.{js,jsx}',
-    '<rootDir>/src/**/*.{test,spec}.{js,jsx}',
+    '<rootDir>/tests/**/*.{test,spec}.{js,jsx}',
   ],
+  // Allow imports from src
+  modulePaths: ['<rootDir>/src'],
 } 

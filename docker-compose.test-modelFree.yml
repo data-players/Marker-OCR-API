@@ -2,15 +2,16 @@ version: '3.8'
 
 services:
   # Test services (modelFree - without heavy ML dependencies)
-  backend-test-modelFree:
+  backend-test-modelfree:
     build:
       context: ./backend
       dockerfile: Dockerfile.test-modelFree
     volumes:
       - ./backend:/app:ro  # Read-only backend code
-      - ./tests:/app/../tests:ro  # Mount tests directory
+      - ./tests:/tests:ro  # Mount tests directory
       - ./shared/uploads:/app/uploads
       - ./shared/outputs:/app/outputs
+    working_dir: /tests
     environment:
       - PYTHONPATH=/app
       - ENVIRONMENT=test
@@ -30,6 +31,7 @@ services:
       target: test
     volumes:
       - ./frontend/src:/app/src:ro
+      - ./tests/frontend:/app/tests:ro
     environment:
       - NODE_ENV=test
     networks:

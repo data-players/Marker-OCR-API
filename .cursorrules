@@ -233,6 +233,53 @@ docker-compose.test-FullStack.yml  # Full integration tests
 - When fixing issues: **code changes only**, no extra documentation unless asked
 - If documentation is needed: update existing files (README, guides) instead of creating new ones
 
+## Test Organization
+
+**CRITICAL RULE**: All test-related files MUST be in `tests/` directory.
+
+### Required Structure
+
+✅ **ALLOWED**:
+- `tests/TESTING.md` - Complete test documentation (centralized)
+- `tests/pytest.ini` - Pytest configuration
+- `tests/.gitignore` - Test artifacts
+- `tests/backend/modelFree/` - Backend unit tests (fast, no ML)
+- `tests/backend/FullStack/` - Backend integration tests (with ML)
+- `tests/frontend/` - Frontend component tests (Jest)
+
+❌ **FORBIDDEN**:
+- Root `pytest.ini` - Must be in `tests/`
+- Root `*TEST*.md` or `*TESTING*.md` - Must be in `tests/`
+- `backend/test_*.py` - Must be in `tests/backend/`
+- `frontend/src/*.test.jsx` - Must be in `tests/frontend/`
+- `tests/local/` - Removed (no manual/local tests)
+
+### File Naming
+
+- Backend: `test_*.py` (pytest convention)
+- Frontend: `*.test.jsx` or `*.spec.jsx` (Jest convention)
+
+### Configuration
+
+- `tests/pytest.ini` - Pytest configuration with marks
+- `frontend/jest.config.js` - Points to `tests/frontend/`
+
+### Enforcement
+
+1. **Before creating a test**: Verify it's in `tests/` directory
+2. **Before creating test docs**: Add to `tests/TESTING.md`
+3. **Before committing**: Run `make verify-tests`
+4. **CI/CD**: Only tests in `tests/` are executed
+
+### Complete Documentation
+
+See `tests/TESTING.md` for:
+- Complete test guide
+- Architecture (modelFree vs FullStack)
+- Pytest marks usage
+- All commands
+- Examples and best practices
+
 ## Update Policy
 
 **IMPORTANT**: This .cursorrules file MUST be updated whenever:

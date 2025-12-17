@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   # Backend test service (FullStack - with full Marker ML dependencies)
-  backend-test-FullStack:
+  backend-test-fullstack:
     build:
       context: ./backend
       dockerfile: Dockerfile.test-FullStack
@@ -10,7 +10,8 @@ services:
       - ./backend:/app:ro  # Read-only to prevent accidental modifications
       - ./shared/uploads:/app/uploads
       - ./shared/outputs:/app/outputs
-      - ./tests:/app/../tests:ro  # Mount tests directory (includes backend/file-to-parse)
+      - ./tests:/tests:ro  # Mount tests directory (includes backend/file-to-parse)
+    working_dir: /tests
     environment:
       - PYTHONPATH=/app
       - ENVIRONMENT=test
@@ -31,9 +32,9 @@ services:
         echo '========================================';
         echo '';
         echo 'Available commands:';
-        echo '  python3 /app/../tests/local/test_marker_logs.py  - Test Marker logs with exemple_facture.pdf';
-        echo '  pytest tests/backend/FullStack/ -v               - Run FullStack backend tests';
-        echo '  pytest tests/backend/modelFree/ -v               - Run modelFree backend tests';
+        echo '  python3 /tests/local/test_marker_logs.py  - Test Marker logs with exemple_facture.pdf';
+        echo '  pytest /tests/backend/FullStack/ -v               - Run FullStack backend tests';
+        echo '  pytest /tests/backend/modelFree/ -v               - Run modelFree backend tests';
         echo '  bash                                               - Interactive shell';
         echo '';
         echo 'Waiting for commands...';

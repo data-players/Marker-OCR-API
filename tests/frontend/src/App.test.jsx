@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react'
-import App from './App'
+import App from 'App'  // Resolved via modulePaths in jest.config.js
 
 test('renders main application', () => {
   render(<App />)

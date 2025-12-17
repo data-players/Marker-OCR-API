@@ -26,7 +26,9 @@ RUN pip install --no-cache-dir -r requirements-minimal.txt
 COPY . .
 
 # Create necessary directories and change ownership
-RUN mkdir -p uploads outputs logs test-results && \
+# Note: /app is mounted read-only, but these subdirs need to be writable
+RUN mkdir -p /app/uploads /app/outputs /app/logs /app/test-results && \
+    chmod 777 /app/test-results && \
     chown -R testuser:testuser /app
 
 # Switch to non-root user
