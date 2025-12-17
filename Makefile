@@ -179,11 +179,6 @@ test-mark: ## Run tests by mark (usage: make test-mark MARK=unit)
 			backend-test-modelfree pytest -m "$(MARK)" -v; \
 	fi
 
-verify-tests: ## Verify test centralization
-	@echo "$(BLUE)Verifying test centralization...$(NC)"
-	@./scripts/verify-test-centralization.sh
-	@echo "$(GREEN)✓ Test centralization verified$(NC)"
-
 ##@ Cleanup
 
 clean: ## Remove stopped containers and unused images

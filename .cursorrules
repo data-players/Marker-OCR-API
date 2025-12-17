@@ -268,7 +268,7 @@ docker-compose.test-FullStack.yml  # Full integration tests
 
 1. **Before creating a test**: Verify it's in `tests/` directory
 2. **Before creating test docs**: Add to `tests/TESTING.md`
-3. **Before committing**: Run `make verify-tests`
+3. **Before committing**: Verify no test files outside `tests/`
 4. **CI/CD**: Only tests in `tests/` are executed
 
 ### Complete Documentation

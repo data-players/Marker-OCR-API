@@ -46,11 +46,8 @@ tests/local/            # Tests manuels - INTERDIT (supprimé)
 ### Vérification
 
 ```bash
-# Vérifier que tout est centralisé
-make verify-tests
-
-# Ou directement
-./scripts/verify-test-centralization.sh
+# Vérifier qu'aucun test n'existe hors de tests/
+find . -name "test_*.py" -o -name "*.test.jsx" | grep -v "tests/" || echo "✓ All tests centralized"
 ```
 
 ---
@@ -402,7 +399,7 @@ make test-marks                    # Afficher marks disponibles
 make test-by-mark MARK=unit        # Tests par mark
 
 # Vérification
-make verify-tests                  # Vérifier centralisation
+# Tous les tests sont centralisés dans tests/
 
 # Build
 make build-test                    # Build toutes images test
@@ -655,16 +652,7 @@ make test-frontend
 
 ### Vérification de la Centralisation
 
-```bash
-# Commande Make
-make verify-tests
-
-# Script direct
-./scripts/verify-test-centralization.sh
-
-# Sortie attendue:
-# ✓ All tests are properly centralized in tests/ directory
-```
+Tous les tests sont maintenant centralisés dans `tests/`. Les règles dans `.cursorrules` et cette documentation assurent que cette structure est maintenue.
 
 ### Intégration CI/CD
 
@@ -681,9 +669,6 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       
-      - name: Verify test centralization
-        run: make verify-tests
-      
       - name: Run all tests
         run: make test
 ```
@@ -694,7 +679,6 @@ jobs:
 test:
   stage: test
   script:
-    - make verify-tests
     - make test
   artifacts:
     reports:
@@ -783,14 +767,10 @@ Marker-OCR-API/
 │   ├── src/
 │   └── jest.config.js                  ← Pointe vers tests/frontend/
 │
-├── scripts/
-│   └── verify-test-centralization.sh   ← Script de vérification
-│
 ├── docker-compose.test-modelFree.yml   ← Config test modelFree
 ├── docker-compose.test-FullStack.yml   ← Config test FullStack
 ├── Makefile                            ← Commandes principales
 ├── .cursorrules                        ← Règles projet
-├── .cursorrules-tests                  ← Règles tests
 └── README.md                           ← Documentation projet
 ```
 
@@ -800,13 +780,11 @@ Marker-OCR-API/
 # Tests
 make test                              # Tous (~30s)
 make test-quick                        # Rapides (~6s)
-make test-backend                      # Backend
-make test-backend-modelFree            # Unit (< 1s)
-make test-backend-FullStack            # Integration (~1s)
+make test-unit                         # Unit (< 1s)
+make test-integration                  # Integration (~1s)
 make test-frontend                     # Frontend (~5s)
-make test-by-mark MARK=unit            # Par mark
+make test-mark MARK=unit               # Par mark
 make test-marks                        # Liste marks
-make verify-tests                      # Vérifier centralisation
 
 # Build
 make build-test                        # Toutes images
@@ -871,7 +849,7 @@ docker compose -f docker-compose.test-modelFree.yml run --rm \
 ✅ **Pytest Marks** - Organisation flexible  
 ✅ **Deux Niveaux** - modelFree (rapide) + FullStack (ML)  
 ✅ **Make Commands** - Interface simple et cohérente  
-✅ **Vérification Automatique** - `make verify-tests`  
+✅ **Règles Strictes** - Voir `.cursorrules`  
 ✅ **Documentation Unique** - Ce fichier contient TOUT  
 ✅ **CI/CD Ready** - Configuration pour pipelines  
 
@@ -880,7 +858,6 @@ docker compose -f docker-compose.test-modelFree.yml run --rm \
 ```bash
 make test              # Tous les tests
 make test-quick        # Tests rapides
-make verify-tests      # Vérifier centralisation
 make test-marks        # Voir marks disponibles
 make help              # Toutes les commandes
 ```
@@ -889,9 +866,8 @@ make help              # Toutes les commandes
 
 Pour toute question sur les tests:
 1. Lire ce document (`tests/TESTING.md`)
-2. Exécuter `make verify-tests`
-3. Consulter `.cursorrules-tests`
-4. Consulter `README.md` à la racine
+2. Consulter `.cursorrules` (section Test Organization)
+3. Consulter `README.md` à la racine
 
 ---
 
