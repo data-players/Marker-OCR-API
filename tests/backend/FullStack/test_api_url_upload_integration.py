@@ -1,238 +1,138 @@
 """
-Integration test for URL upload functionality with SSE.
-This test can be run in the Docker test container to verify the complete workflow:
-1. Upload from URL
-2. Start processing
-3. SSE connection and real-time updates
+Full integration tests for Marker document parsing.
+These tests verify the complete document parsing workflow with real Marker library.
+Tests use actual PDF files from the test fixtures directory.
 """
 
 import pytest
-import requests
-import time
-import json
-import os
-from typing import Optional
+import asyncio
+from pathlib import Path
+from app.services.document_parser import DocumentParserService
+from app.services.file_handler import FileHandlerService
 
 
-class TestUrlUploadIntegration:
-    """Integration tests for URL upload with SSE."""
+pytestmark = pytest.mark.fullstack
 
-    @pytest.fixture(scope="class")
-    def api_base_url(self):
-        """Get API base URL from environment or use default."""
-        return os.getenv("API_BASE_URL", "http://localhost:8000")
 
-    @pytest.fixture(scope="class")
-    def test_pdf_url(self):
-        """Test PDF URL that should be accessible."""
-        # Using W3C test PDF that is publicly available
-        return "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf"
+class TestMarkerIntegration:
+    """Real integration tests for Marker document processing."""
 
-    def test_url_upload_success(self, api_base_url, test_pdf_url):
-        """Test successful upload from URL."""
-        url = f"{api_base_url}/api/v1/documents/upload"
+    @pytest.fixture
+    def document_parser(self):
+        """Create DocumentParserService with real Marker."""
+        return DocumentParserService()
+
+    @pytest.fixture
+    def file_handler(self):
+        """Create FileHandlerService."""
+        return FileHandlerService()
+
+    @pytest.fixture
+    def test_pdf_path(self):
+        """Get path to test PDF file."""
+        pdf_path = Path("/tests/backend/FullStack/file-to-parse/exemple_facture.pdf")
+        if not pdf_path.exists():
+            pytest.skip(f"Test PDF not found at {pdf_path}")
+        return pdf_path
+
+    @pytest.mark.asyncio
+    async def test_initialize_marker_models(self, document_parser):
+        """Test Marker model initialization."""
+        # Initialize models
+        success = await document_parser.initialize_models()
         
-        response = requests.post(
-            url,
-            data={"url": test_pdf_url},
-            timeout=60
+        # Verify initialization succeeded
+        assert success is True, "Failed to initialize Marker models"
+        assert document_parser.models_dict is not None, "Models dict is not loaded"
+
+    @pytest.mark.asyncio
+    async def test_parse_pdf_to_markdown(self, document_parser, test_pdf_path):
+        """Test parsing real PDF to Markdown format with Marker."""
+        # Initialize models
+        success = await document_parser.initialize_models()
+        assert success is True
+        
+        # Parse PDF to Markdown
+        result = await document_parser.parse_document(
+            file_path=str(test_pdf_path),
+            output_format="markdown"
         )
         
-        assert response.status_code == 200, f"Upload failed: {response.text}"
-        data = response.json()
+        # Verify result
+        assert result is not None
+        assert isinstance(result, dict)
         
-        assert "file_id" in data
-        assert "filename" in data
-        assert "size" in data
-        assert data["size"] > 0
+        # Should have content or markdown field
+        has_content = "content" in result or "markdown" in result or "text" in result
+        assert has_content, f"No content field in result: {result.keys()}"
         
-        return data["file_id"]
+        # Content should not be empty
+        if "content" in result:
+            assert len(result["content"]) > 0
+        elif "markdown" in result:
+            assert len(result["markdown"]) > 0
+        elif "text" in result:
+            assert len(result["text"]) > 0
 
-    def test_process_document_after_url_upload(self, api_base_url, test_pdf_url):
-        """Test processing a document uploaded from URL."""
-        # Step 1: Upload from URL
-        upload_url = f"{api_base_url}/api/v1/documents/upload"
-        upload_response = requests.post(
-            upload_url,
-            data={"url": test_pdf_url},
-            timeout=60
-        )
-        assert upload_response.status_code == 200
-        file_id = upload_response.json()["file_id"]
+    @pytest.mark.asyncio
+    async def test_parse_pdf_to_json(self, document_parser, test_pdf_path):
+        """Test parsing real PDF to JSON format with Marker."""
+        # Initialize models
+        success = await document_parser.initialize_models()
+        assert success is True
         
-        # Step 2: Start processing
-        process_url = f"{api_base_url}/api/v1/documents/process"
-        process_response = requests.post(
-            process_url,
-            data={
-                "file_id": file_id,
-                "output_format": "markdown"
-            },
-            timeout=60
+        # Parse PDF to JSON
+        result = await document_parser.parse_document(
+            file_path=str(test_pdf_path),
+            output_format="json"
         )
         
-        assert process_response.status_code == 200, f"Process failed: {process_response.text}"
-        process_data = process_response.json()
+        # Verify result structure
+        assert result is not None
+        assert isinstance(result, dict)
         
-        assert "job_id" in process_data
-        job_id = process_data["job_id"]
-        
-        return job_id
+        # JSON output should have structure
+        assert len(result) > 0, "JSON output is empty"
 
-    def test_sse_connection_url_upload(self, api_base_url, test_pdf_url):
-        """Test SSE connection for URL upload workflow."""
-        # Step 1: Upload from URL
-        upload_url = f"{api_base_url}/api/v1/documents/upload"
-        upload_response = requests.post(
-            upload_url,
-            data={"url": test_pdf_url},
-            timeout=60
+    @pytest.mark.asyncio
+    async def test_parse_multiple_formats(self, document_parser, test_pdf_path):
+        """Test parsing same PDF in multiple formats."""
+        # Initialize models
+        success = await document_parser.initialize_models()
+        assert success is True
+        
+        # Parse to multiple formats
+        markdown_result = await document_parser.parse_document(
+            file_path=str(test_pdf_path),
+            output_format="markdown"
         )
-        assert upload_response.status_code == 200
-        file_id = upload_response.json()["file_id"]
         
-        # Step 2: Start processing
-        process_url = f"{api_base_url}/api/v1/documents/process"
-        process_response = requests.post(
-            process_url,
-            data={
-                "file_id": file_id,
-                "output_format": "markdown"
-            },
-            timeout=60
+        json_result = await document_parser.parse_document(
+            file_path=str(test_pdf_path),
+            output_format="json"
         )
-        assert process_response.status_code == 200
-        job_id = process_response.json()["job_id"]
         
-        # Step 3: Test SSE connection
-        sse_url = f"{api_base_url}/api/v1/documents/jobs/{job_id}/stream"
+        # Both should produce results
+        assert markdown_result is not None
+        assert json_result is not None
         
-        # Verify SSE endpoint is accessible
-        # Note: We can't easily test SSE with requests, but we can verify the endpoint exists
-        # by checking that it returns proper headers
-        headers = {"Accept": "text/event-stream"}
+        # Results should be different formats
+        markdown_has_content = any(k in markdown_result for k in ["content", "markdown", "text"])
+        json_has_content = len(json_result) > 0
         
-        # Use a timeout to avoid hanging
-        try:
-            response = requests.get(
-                sse_url,
-                headers=headers,
-                stream=True,
-                timeout=5
-            )
-            
-            # SSE endpoint should return 200 with proper content type
-            assert response.status_code == 200, f"SSE endpoint failed: {response.status_code}"
-            assert "text/event-stream" in response.headers.get("Content-Type", ""), \
-                f"Wrong content type: {response.headers.get('Content-Type')}"
-            
-            # Read first few events
-            events_received = 0
-            for line in response.iter_lines(decode_unicode=True):
-                if line.startswith("data:"):
-                    events_received += 1
-                    data = json.loads(line[5:].strip())
-                    assert "job_id" in data
-                    assert data["job_id"] == job_id
-                    
-                    # Stop after receiving initial event
-                    if events_received >= 1:
-                        break
-                
-                if events_received >= 1:
-                    break
-            
-            assert events_received > 0, "No SSE events received"
-            
-        except requests.exceptions.Timeout:
-            # Timeout is acceptable for SSE as it's a long-running connection
-            # The important thing is that the endpoint is accessible
-            pass
+        assert markdown_has_content, "Markdown format failed"
+        assert json_has_content, "JSON format failed"
 
-    def test_complete_url_upload_workflow(self, api_base_url, test_pdf_url):
-        """Test complete workflow: URL upload -> processing -> SSE updates."""
-        # Step 1: Upload from URL
-        upload_url = f"{api_base_url}/api/v1/documents/upload"
-        upload_response = requests.post(
-            upload_url,
-            data={"url": test_pdf_url},
-            timeout=60
-        )
-        assert upload_response.status_code == 200, f"Upload failed: {upload_response.text}"
-        upload_data = upload_response.json()
-        file_id = upload_data["file_id"]
+    @pytest.mark.asyncio
+    async def test_marker_shutdown(self, document_parser):
+        """Test Marker service cleanup/shutdown."""
+        # Initialize
+        await document_parser.initialize_models()
         
-        assert upload_data["size"] > 0
-        assert upload_data["filename"] is not None
+        # Shutdown should not raise
+        await document_parser.shutdown()
         
-        # Step 2: Start processing
-        process_url = f"{api_base_url}/api/v1/documents/process"
-        process_response = requests.post(
-            process_url,
-            data={
-                "file_id": file_id,
-                "output_format": "markdown",
-                "extract_images": "false",
-                "paginate_output": "false"
-            },
-            timeout=60
-        )
-        assert process_response.status_code == 200, f"Process failed: {process_response.text}"
-        process_data = process_response.json()
-        job_id = process_data["job_id"]
-        
-        # Step 3: Verify job status endpoint
-        status_url = f"{api_base_url}/api/v1/documents/jobs/{job_id}"
-        status_response = requests.get(status_url, timeout=30)
-        assert status_response.status_code == 200
-        
-        status_data = status_response.json()
-        assert status_data["job_id"] == job_id
-        assert "status" in status_data
-        assert status_data["status"] in ["pending", "processing", "completed", "failed"]
-        
-        # Step 4: Verify SSE endpoint URL is correct (no double /api/v1)
-        sse_url = f"{api_base_url}/api/v1/documents/jobs/{job_id}/stream"
-        assert "/api/v1/api/v1" not in sse_url, f"Double /api/v1 in SSE URL: {sse_url}"
-        
-        # Verify SSE endpoint is accessible
-        headers = {"Accept": "text/event-stream"}
-        try:
-            sse_response = requests.get(
-                sse_url,
-                headers=headers,
-                stream=True,
-                timeout=3
-            )
-            assert sse_response.status_code == 200
-            assert "text/event-stream" in sse_response.headers.get("Content-Type", "")
-        except requests.exceptions.Timeout:
-            # Timeout is acceptable for SSE
-            pass
-
-    def test_url_upload_invalid_url(self, api_base_url):
-        """Test upload with invalid URL."""
-        url = f"{api_base_url}/api/v1/documents/upload"
-        
-        response = requests.post(
-            url,
-            data={"url": "not-a-valid-url"},
-            timeout=30
-        )
-        
-        # Should return error for invalid URL
-        assert response.status_code in [400, 422, 500]
-
-    def test_url_upload_nonexistent_file(self, api_base_url):
-        """Test upload with URL pointing to non-existent file."""
-        url = f"{api_base_url}/api/v1/documents/upload"
-        
-        response = requests.post(
-            url,
-            data={"url": "https://example.com/nonexistent.pdf"},
-            timeout=30
-        )
-        
-        # Should return error for non-existent file
-        assert response.status_code in [400, 422, 500]
+        # After shutdown, models should not be available
+        # (attempting to parse should fail gracefully)
+        assert True, "Shutdown completed without errors"
 

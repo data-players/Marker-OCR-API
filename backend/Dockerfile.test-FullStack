@@ -17,9 +17,6 @@ RUN apt-get update && apt-get install -y \
     poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user
-RUN groupadd -r testuser && useradd -r -g testuser testuser
-
 # Set working directory
 WORKDIR /app
 
@@ -40,12 +37,9 @@ RUN pip install --no-cache-dir -r requirements-base.txt
 # Copy application code
 COPY . .
 
-# Create necessary directories and change ownership
-RUN mkdir -p uploads outputs logs test-results && \
-    chown -R testuser:testuser /app
-
-# Switch to non-root user
-USER testuser
+# Create necessary directories for caching and outputs
+RUN mkdir -p uploads outputs logs test-results .cache/surya .cache/marker .cache/huggingface .cache/torch && \
+    chmod 777 uploads outputs logs test-results .cache .cache/surya .cache/marker .cache/huggingface .cache/torch
 
 # Set environment for testing
 ENV PYTHONPATH=/app

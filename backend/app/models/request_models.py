@@ -4,7 +4,7 @@ Defines the structure and validation rules for incoming requests.
 """
 
 from typing import Optional, List
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from enum import Enum
 
 
@@ -42,7 +42,8 @@ class DocumentProcessRequest(BaseModel):
         description="Document language hint (ISO 639-1 code)"
     )
     
-    @validator('language')
+    @field_validator('language')
+    @classmethod
     def validate_language(cls, v):
         """Validate language code format."""
         if v is not None and v != 'auto' and len(v) != 2:
@@ -71,8 +72,8 @@ class BatchProcessRequest(BaseModel):
     """Request model for batch processing."""
     
     file_ids: List[str] = Field(
-        min_items=1,
-        max_items=10,
+        min_length=1,
+        max_length=10,
         description="List of file IDs to process"
     )
     
@@ -81,7 +82,8 @@ class BatchProcessRequest(BaseModel):
         description="Processing options applied to all files"
     )
     
-    @validator('file_ids')
+    @field_validator('file_ids')
+    @classmethod
     def validate_file_ids(cls, v):
         """Validate file IDs format."""
         if not v:
@@ -103,7 +105,7 @@ class CombinedAnalysisRequest(BaseModel):
         examples=["Extract key invoice information including vendor details, line items, and totals"]
     )
     
-    schema: dict = Field(
+    extraction_schema: dict = Field(
         description="JSON schema defining the expected structure for LLM extraction",
         examples=[{
             "vendor_name": {

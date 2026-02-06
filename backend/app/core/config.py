@@ -4,7 +4,7 @@ Centralized configuration for the entire application.
 """
 
 from typing import Optional, List
-from pydantic import Field
+from pydantic import Field, ConfigDict
 from pydantic_settings import BaseSettings
 
 
@@ -76,10 +76,11 @@ class Settings(BaseSettings):
             return ""
         return f"https://api.infomaniak.com/1/ai/{self.llm_product_id}/openai/chat/completions"
     
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = False
+    model_config = ConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False
+    )
 
 
 # Global settings instance

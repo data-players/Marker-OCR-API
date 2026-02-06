@@ -11,15 +11,22 @@ services:
       - ./shared/uploads:/app/uploads
       - ./shared/outputs:/app/outputs
       - ./tests:/tests:ro  # Mount tests directory (includes backend/file-to-parse)
+      # Persist ML model cache across test runs (IMPORTANT: massive speedup!)
+      - marker_models_cache:/root/.cache
     working_dir: /tests
     environment:
       - PYTHONPATH=/app
       - ENVIRONMENT=test
       - LOG_LEVEL=DEBUG
-      - MARKER_DEBUG_LOGS=1  # Enable Marker log debugging
+      - MARKER_DEBUG_LOGS=1
       - UPLOAD_DIR=/app/uploads
       - OUTPUT_DIR=/app/outputs
       - API_BASE_URL=${API_BASE_URL:-http://host.docker.internal:8000}
+      # Marker cache configuration - using /root/.cache (writable, persisted volume)
+      - SURYA_CACHE_DIR=/root/.cache/surya
+      - MARKER_CACHE_DIR=/root/.cache/marker
+      - HF_HOME=/root/.cache/huggingface
+      - TORCH_HOME=/root/.cache/torch
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
@@ -61,5 +68,6 @@ networks:
 volumes:
   test_uploads:
   test_outputs:
+  marker_models_cache:  # Persistent volume for Marker ML models (avoids re-downloading on every test)
 
 

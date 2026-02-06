@@ -87,7 +87,7 @@ async def analyze_ocr_with_llm(
         # Serialize schema for storage (convert Pydantic models to dict)
         schema_dict = {
             field_name: field_def.model_dump()
-            for field_name, field_def in request.schema.items()
+            for field_name, field_def in request.extraction_schema.items()
         }
         
         # Store analysis job in Redis

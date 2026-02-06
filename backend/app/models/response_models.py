@@ -5,7 +5,7 @@ Defines the structure of outgoing API responses.
 
 from typing import Optional, List, Dict, Any, Union
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from enum import Enum
 
 
@@ -162,9 +162,7 @@ class ProcessingResult(BaseModel):
     metadata: Dict[str, Any] = {}
     processing_time: float = 0.0
     
-    class Config:
-        # Allow extra fields for future extensibility
-        extra = "allow"
+    model_config = ConfigDict(extra="allow")
         
     @classmethod
     def from_marker_result(cls, result_dict: Dict[str, Any]) -> "ProcessingResult":

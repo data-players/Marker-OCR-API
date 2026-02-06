@@ -144,7 +144,7 @@ async def analyze_document_from_url(
         
         # Serialize schema for storage
         schema_dict = {}
-        for field_name, field_def in request.schema.items():
+        for field_name, field_def in request.extraction_schema.items():
             if isinstance(field_def, SchemaFieldDefinition):
                 schema_dict[field_name] = field_def.model_dump()
             elif isinstance(field_def, dict):
@@ -275,7 +275,7 @@ async def analyze_document_from_url_sync(
         
         # Serialize schema
         schema_dict = {}
-        for field_name, field_def in request.schema.items():
+        for field_name, field_def in request.extraction_schema.items():
             if isinstance(field_def, SchemaFieldDefinition):
                 schema_dict[field_name] = field_def.model_dump()
             elif isinstance(field_def, dict):
