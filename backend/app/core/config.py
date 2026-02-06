@@ -3,7 +3,7 @@ Configuration management using Pydantic Settings.
 Centralized configuration for the entire application.
 """
 
-from typing import Optional, List
+from typing import Optional, List, Literal
 from pydantic import Field, ConfigDict
 from pydantic_settings import BaseSettings
 
@@ -40,9 +40,9 @@ class Settings(BaseSettings):
     marker_batch_size: int = Field(default=1, description="Marker processing batch size")
     marker_use_gpu: bool = Field(default=True, description="Use GPU for Marker processing")
     marker_force_ocr: bool = Field(default=False, description="Force OCR for all documents")
-    marker_mode: str = Field(
+    marker_mode: Literal["library", "api"] = Field(
         default="library",
-        description="Marker mode: 'library' for local processing, 'api' for Datalab cloud"
+        description="Marker processing mode: 'library' (local) or 'api' (Datalab cloud API)"
     )
     
     # Datalab API configuration (for marker_mode='api')
@@ -62,9 +62,9 @@ class Settings(BaseSettings):
         default=2.0,
         description="Datalab API poll interval in seconds"
     )
-    datalab_api_mode: str = Field(
-        default="high_quality",
-        description="Datalab processing mode: 'fast' or 'high_quality'"
+    datalab_api_mode: Literal["fast", "balanced", "accurate"] = Field(
+        default="balanced",
+        description="Datalab processing mode: 'fast', 'balanced', or 'accurate'"
     )
     
     # Redis (for background tasks)
