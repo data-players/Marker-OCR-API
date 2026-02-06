@@ -15,8 +15,10 @@ import asyncio
 from app.core.config import settings
 from app.core.logger import setup_logging, get_logger
 from app.core.exceptions import BaseAPIException
+from app.core.database import init_db, close_db
 from app.models.response_models import ErrorResponse
 from app.api.routes import health, documents, llm_analysis, combined_analysis
+from app.api.routes import auth, workspaces, flows, extract
 from app.api.dependencies import cleanup_services, get_document_parser
 from pydantic import ValidationError
 
@@ -49,6 +51,15 @@ async def lifespan(app: FastAPI):
     from pathlib import Path
     Path(settings.upload_dir).mkdir(parents=True, exist_ok=True)
     Path(settings.output_dir).mkdir(parents=True, exist_ok=True)
+    
+    # Initialize database
+    logger.info("Initializing database...")
+    try:
+        await init_db()
+        logger.info("✅ Database initialized successfully")
+    except Exception as e:
+        logger.warning(f"⚠️ Database initialization failed: {str(e)}")
+        # Continue startup - database may not be needed for all operations
     
     # Initialize Marker models at startup
     logger.info("Initializing Marker models...")
@@ -90,6 +101,7 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down Marker OCR API service")
     try:
         await cleanup_services()
+        await close_db()
     except asyncio.CancelledError:
         # Cleanup was cancelled - this is normal during hot reload
         logger.debug("Cleanup cancelled during hot reload")
@@ -315,6 +327,27 @@ app.include_router(
 
 app.include_router(
     combined_analysis.router,
+    prefix="/api/v1"
+)
+
+# New routes: Authentication, Workspaces, Flows
+app.include_router(
+    auth.router,
+    prefix="/api/v1"
+)
+
+app.include_router(
+    workspaces.router,
+    prefix="/api/v1"
+)
+
+app.include_router(
+    flows.router,
+    prefix="/api/v1"
+)
+
+app.include_router(
+    extract.router,
     prefix="/api/v1"
 )
 

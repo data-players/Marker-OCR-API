@@ -305,6 +305,142 @@ class RedisService:
         except Exception as e:
             logger.error(f"Failed to delete analysis {analysis_id}: {str(e)}")
             return False
+    
+    # Extraction execution tracking methods
+    
+    def store_execution(self, execution_id: str, execution_data: Dict[str, Any], ttl: int = 86400) -> bool:
+        """
+        Store extraction execution data in Redis with TTL.
+        
+        Args:
+            execution_id: Unique execution identifier
+            execution_data: Execution data dictionary
+            ttl: Time to live in seconds (default 24 hours)
+            
+        Returns:
+            True if stored successfully
+        """
+        try:
+            key = f"execution:{execution_id}"
+            value = json.dumps(execution_data)
+            self.client.setex(key, ttl, value)
+            logger.debug(f"Stored execution {execution_id} in Redis")
+            
+            # Publish update notification for SSE
+            self.publish_execution_update(execution_id, execution_data)
+            
+            return True
+        except Exception as e:
+            logger.error(f"Failed to store execution {execution_id}: {str(e)}")
+            return False
+    
+    def get_execution(self, execution_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get extraction execution data from Redis.
+        
+        Args:
+            execution_id: Unique execution identifier
+            
+        Returns:
+            Execution data dictionary or None if not found
+        """
+        try:
+            key = f"execution:{execution_id}"
+            value = self.client.get(key)
+            if value:
+                return json.loads(value)
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get execution {execution_id}: {str(e)}")
+            return None
+    
+    def update_execution(self, execution_id: str, updates: Dict[str, Any], ttl: int = 86400) -> bool:
+        """
+        Update extraction execution data in Redis and publish update notification.
+        
+        Args:
+            execution_id: Unique execution identifier
+            updates: Dictionary of fields to update
+            ttl: Time to live in seconds (default 24 hours)
+            
+        Returns:
+            True if updated successfully
+        """
+        try:
+            existing_data = self.get_execution(execution_id)
+            if existing_data is None:
+                logger.warning(f"Execution {execution_id} not found for update")
+                return False
+            
+            # Merge updates
+            existing_data.update(updates)
+            success = self.store_execution(execution_id, existing_data, ttl)
+            
+            return success
+        except Exception as e:
+            logger.error(f"Failed to update execution {execution_id}: {str(e)}")
+            return False
+    
+    def publish_execution_update(self, execution_id: str, execution_data: Dict[str, Any]) -> bool:
+        """
+        Publish execution update notification via Redis pub/sub for SSE.
+        
+        Args:
+            execution_id: Unique execution identifier
+            execution_data: Complete execution data dictionary
+            
+        Returns:
+            True if published successfully
+        """
+        try:
+            channel = f"execution_updates:{execution_id}"
+            message = json.dumps(execution_data)
+            self.client.publish(channel, message)
+            logger.debug(f"Published update for execution {execution_id} to channel {channel}")
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to publish execution update for {execution_id}: {str(e)}")
+            return False
+    
+    def subscribe_execution_updates(self, execution_id: str):
+        """
+        Subscribe to execution update notifications via Redis pub/sub.
+        
+        Args:
+            execution_id: Unique execution identifier
+            
+        Yields:
+            Execution data dictionaries as updates are published
+        """
+        try:
+            pubsub = self.client.pubsub()
+            channel = f"execution_updates:{execution_id}"
+            pubsub.subscribe(channel)
+            logger.debug(f"Subscribed to execution updates for {execution_id}")
+            
+            # Send initial state immediately
+            initial_data = self.get_execution(execution_id)
+            if initial_data:
+                yield initial_data
+            
+            # Listen for updates
+            for message in pubsub.listen():
+                if message['type'] == 'message':
+                    try:
+                        execution_data = json.loads(message['data'])
+                        yield execution_data
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Failed to decode execution update message: {str(e)}")
+                elif message['type'] == 'subscribe':
+                    logger.debug(f"Successfully subscribed to {channel}")
+        except Exception as e:
+            logger.error(f"Failed to subscribe to execution updates for {execution_id}: {str(e)}")
+            raise
+        finally:
+            try:
+                pubsub.close()
+            except Exception:
+                pass
 
 
 

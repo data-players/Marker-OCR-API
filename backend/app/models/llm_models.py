@@ -4,7 +4,7 @@ Defines schema definition, analysis requests and responses.
 """
 
 from typing import Dict, Any, Optional, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime
 
 
@@ -15,6 +15,7 @@ class SchemaFieldDefinition(BaseModel):
         description="Field data type"
     )
     description: str = Field(
+        default="",
         description="Description of what information to extract for this field"
     )
     required: bool = Field(
@@ -31,6 +32,23 @@ class SchemaFieldDefinition(BaseModel):
     )
 
 
+class RootSchemaDefinition(BaseModel):
+    """Root schema definition that can be an object or array type."""
+    
+    type: Literal["object", "array"] = Field(
+        default="object",
+        description="Root type (object or array)"
+    )
+    properties: Optional[Dict[str, SchemaFieldDefinition]] = Field(
+        default=None,
+        description="Properties for object type root"
+    )
+    items: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Items schema for array type root"
+    )
+
+
 class LLMAnalysisRequest(BaseModel):
     """Request to analyze OCR content with LLM."""
     
@@ -41,9 +59,12 @@ class LLMAnalysisRequest(BaseModel):
         default="",
         description="Optional introduction text explaining the extraction task to the LLM"
     )
-    schema: Dict[str, SchemaFieldDefinition] = Field(
-        description="JSON schema defining the expected structure with types and descriptions"
+    extraction_schema: Dict[str, SchemaFieldDefinition] = Field(
+        description="JSON schema defining the expected structure with types and descriptions",
+        alias="schema"  # Accept 'schema' in JSON for backwards compatibility
     )
+    
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class LLMAnalysisResponse(BaseModel):

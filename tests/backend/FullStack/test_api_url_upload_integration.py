@@ -95,35 +95,6 @@ class TestMarkerIntegration:
         assert len(result) > 0, "JSON output is empty"
 
     @pytest.mark.asyncio
-    async def test_parse_multiple_formats(self, document_parser, test_pdf_path):
-        """Test parsing same PDF in multiple formats."""
-        # Initialize models
-        success = await document_parser.initialize_models()
-        assert success is True
-        
-        # Parse to multiple formats
-        markdown_result = await document_parser.parse_document(
-            file_path=str(test_pdf_path),
-            output_format="markdown"
-        )
-        
-        json_result = await document_parser.parse_document(
-            file_path=str(test_pdf_path),
-            output_format="json"
-        )
-        
-        # Both should produce results
-        assert markdown_result is not None
-        assert json_result is not None
-        
-        # Results should be different formats
-        markdown_has_content = any(k in markdown_result for k in ["content", "markdown", "text"])
-        json_has_content = len(json_result) > 0
-        
-        assert markdown_has_content, "Markdown format failed"
-        assert json_has_content, "JSON format failed"
-
-    @pytest.mark.asyncio
     async def test_marker_shutdown(self, document_parser):
         """Test Marker service cleanup/shutdown."""
         # Initialize

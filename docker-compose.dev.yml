@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # Development services with hot reloading
   backend-dev:
@@ -12,6 +10,7 @@ services:
       - ./backend:/app
       - backend_uploads:/app/uploads
       - backend_outputs:/app/outputs
+      - backend_data:/app/data
       - /app/__pycache__  # Exclude pycache
     environment:
       - PYTHONPATH=/app
@@ -72,6 +71,7 @@ volumes:
   redis_data:
   backend_uploads:
   backend_outputs:
+  backend_data:
 
 
 

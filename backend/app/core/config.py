@@ -40,6 +40,32 @@ class Settings(BaseSettings):
     marker_batch_size: int = Field(default=1, description="Marker processing batch size")
     marker_use_gpu: bool = Field(default=True, description="Use GPU for Marker processing")
     marker_force_ocr: bool = Field(default=False, description="Force OCR for all documents")
+    marker_mode: str = Field(
+        default="library",
+        description="Marker mode: 'library' for local processing, 'api' for Datalab cloud"
+    )
+    
+    # Datalab API configuration (for marker_mode='api')
+    datalab_api_key: Optional[str] = Field(
+        default=None,
+        description="Datalab API key for cloud processing"
+    )
+    datalab_api_base_url: str = Field(
+        default="https://www.datalab.to/api/v1",
+        description="Datalab API base URL"
+    )
+    datalab_api_timeout: int = Field(
+        default=300,
+        description="Datalab API timeout in seconds"
+    )
+    datalab_api_poll_interval: float = Field(
+        default=2.0,
+        description="Datalab API poll interval in seconds"
+    )
+    datalab_api_mode: str = Field(
+        default="high_quality",
+        description="Datalab processing mode: 'fast' or 'high_quality'"
+    )
     
     # Redis (for background tasks)
     redis_url: str = Field(default="redis://redis:6379/0", description="Redis URL")
@@ -50,6 +76,16 @@ class Settings(BaseSettings):
     
     # Security
     api_key: Optional[str] = Field(default=None, description="API key for authentication")
+    
+    # JWT Authentication
+    jwt_secret_key: str = Field(
+        default="your-secret-key-change-in-production",
+        description="Secret key for JWT token signing (CHANGE IN PRODUCTION!)"
+    )
+    jwt_expire_minutes: int = Field(
+        default=60 * 24 * 7,  # 7 days
+        description="JWT token expiration time in minutes"
+    )
     
     # LLM Configuration (Infomaniak API)
     llm_product_id: str = Field(

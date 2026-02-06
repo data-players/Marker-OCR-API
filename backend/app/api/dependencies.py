@@ -10,6 +10,7 @@ from fastapi import Depends, HTTPException, Header
 from app.core.config import settings
 from app.services.file_handler import FileHandlerService
 from app.services.document_parser import DocumentParserService
+from app.services.document_parser_interface import DocumentParserInterface
 from app.services.redis_service import RedisService
 from app.services.llm_service import LLMService
 
@@ -36,15 +37,27 @@ def get_file_handler() -> FileHandlerService:
 
 
 @lru_cache()
-def get_document_parser() -> DocumentParserService:
+def get_document_parser() -> DocumentParserInterface:
     """
     Get singleton instance of DocumentParserService.
     Uses LRU cache to ensure single instance across requests.
+    
+    Returns either:
+    - DocumentParserService (library mode): Local Marker with ML models
+    - DocumentParserAPIService (api mode): Datalab cloud API
+    
+    Mode is controlled by MARKER_MODE environment variable.
     """
     global _document_parser_instance
     
     if _document_parser_instance is None:
-        _document_parser_instance = DocumentParserService()
+        if settings.marker_mode == "api":
+            # Use Datalab cloud API (lightweight, no local ML dependencies)
+            from app.services.document_parser_api import DocumentParserAPIService
+            _document_parser_instance = DocumentParserAPIService()
+        else:
+            # Use local Marker library (requires GPU/ML dependencies)
+            _document_parser_instance = DocumentParserService()
     
     return _document_parser_instance
 

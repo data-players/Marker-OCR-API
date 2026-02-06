@@ -43,6 +43,7 @@ from app.core.logger import get_logger
 from app.core.logger import LoggerMixin
 from app.models.enums import OutputFormat
 from app.services.marker_log_handler import setup_marker_log_interception, remove_marker_log_interception
+from app.services.document_parser_interface import DocumentParserInterface
 
 logger = get_logger(__name__)
 
@@ -270,10 +271,17 @@ def serialize_pydantic_objects(data):
         return None
 
 
-class DocumentParserService:
+class DocumentParserService(DocumentParserInterface):
     """
-    Service for parsing documents using the Marker library.
+    Service for parsing documents using the Marker library (local mode).
     Handles PDF conversion to markdown/JSON with caching and error recovery.
+    
+    This is the "library" mode implementation that requires:
+    - Marker library installed with all ML dependencies
+    - GPU for optimal performance (CPU fallback available)
+    - Significant memory for model loading
+    
+    For lightweight cloud processing, use DocumentParserAPIService instead.
     """
     
     def __init__(self):
@@ -704,7 +712,8 @@ class DocumentParserService:
                 "status": "error",
                 "message": "Marker library not installed",
                 "models_loaded": False,
-                "error": "Marker library not installed"
+                "error": "Marker library not installed",
+                "mode": "library"
             }
         
         if self.models_ready:
@@ -712,21 +721,24 @@ class DocumentParserService:
                 "status": "ready",
                 "message": "Models loaded and ready",
                 "models_loaded": True,
-                "error": None
+                "error": None,
+                "mode": "library"
             }
         elif self.model_load_error:
             return {
                 "status": "error",
                 "message": self.model_load_error,
                 "models_loaded": False,
-                "error": self.model_load_error
+                "error": self.model_load_error,
+                "mode": "library"
             }
         else:
             return {
                 "status": "loading",
                 "message": "Models are being loaded...",
                 "models_loaded": False,
-                "error": None
+                "error": None,
+                "mode": "library"
             }
     
     async def shutdown(self):
