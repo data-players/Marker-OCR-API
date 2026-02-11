@@ -4,6 +4,7 @@ Handles PDF to JSON/Markdown conversion via HTTP API calls.
 """
 
 import asyncio
+import json
 import time
 import aiohttp
 from pathlib import Path
@@ -259,6 +260,7 @@ class DocumentParserAPIService(DocumentParserInterface):
         }
         
         # Extract content based on output format
+        # The LLM receives the native output as chosen by the user
         if output_format == OutputFormat.MARKDOWN:
             markdown = api_result.get("markdown", "")
             result["text"] = markdown
@@ -267,10 +269,15 @@ class DocumentParserAPIService(DocumentParserInterface):
         elif output_format == OutputFormat.JSON:
             json_data = api_result.get("json", {})
             result["rich_structure"] = json_data
-            # Also provide markdown if available
-            if "markdown" in api_result:
-                result["text"] = api_result["markdown"]
-                result["markdown_content"] = api_result["markdown"]
+            # Serialize JSON structure as text for LLM (consistent with library mode)
+            if json_data:
+                json_text = json.dumps(json_data, indent=2, ensure_ascii=False)
+                result["text"] = json_text
+                logger.info(f"JSON structure serialized: {len(json_text)} chars for LLM")
+            else:
+                result["text"] = ""
+                logger.warning("JSON mode: empty JSON structure from Datalab API")
+            result["markdown_content"] = None
         
         return result
     

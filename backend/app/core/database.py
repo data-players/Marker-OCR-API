@@ -41,8 +41,15 @@ def get_engine():
         _ensure_db_dir()
         _engine = create_async_engine(
             DATABASE_URL,
-            echo=settings.debug,
-            future=True
+            echo=False,  # Don't echo SQL queries (too verbose)
+            future=True,
+            # SQLite-specific options for better concurrency
+            connect_args={
+                "timeout": 30,  # 30 second timeout for database locks
+                "check_same_thread": False
+            },
+            # Enable WAL mode for better concurrent access
+            pool_pre_ping=True
         )
     return _engine
 
@@ -54,8 +61,14 @@ def get_sync_engine():
         _ensure_db_dir()
         _sync_engine = create_engine(
             SYNC_DATABASE_URL,
-            echo=settings.debug,
-            future=True
+            echo=False,  # Don't echo SQL queries (too verbose)
+            future=True,
+            # SQLite-specific options for better concurrency
+            connect_args={
+                "timeout": 30,  # 30 second timeout for database locks
+                "check_same_thread": False
+            },
+            pool_pre_ping=True
         )
     return _sync_engine
 
@@ -104,9 +117,12 @@ async def get_db() -> AsyncSession:
 
 
 async def init_db():
-    """Initialize database tables."""
+    """Initialize database tables and enable WAL mode."""
     _ensure_db_dir()
     async with get_engine().begin() as conn:
+        # Enable WAL mode for better concurrent access in SQLite
+        await conn.run_sync(lambda sync_conn: sync_conn.execute("PRAGMA journal_mode=WAL"))
+        await conn.run_sync(lambda sync_conn: sync_conn.execute("PRAGMA synchronous=NORMAL"))
         await conn.run_sync(Base.metadata.create_all)
 
 

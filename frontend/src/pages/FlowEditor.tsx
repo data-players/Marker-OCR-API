@@ -200,7 +200,7 @@ export default function FlowEditor() {
     }
   }
 
-  const startAsyncExtraction = async (endpoint: string, body: FormData | string, headers?: Record<string, string>) => {
+  const startAsyncExtraction = async (endpoint: string, body: FormData | string | ArrayBuffer, headers?: Record<string, string>) => {
     setIsTesting(true)
     setTestResult(null)
     setTestSteps([])
@@ -210,7 +210,7 @@ export default function FlowEditor() {
 
     try {
       // Start async extraction
-      const response = await fetch(`${API_BASE_URL}/api/v1/extract/${flow?.api_key}/async`, {
+      const response = await fetch(`${API_BASE_URL}/api/v1/extract/${flow?.api_key}`, {
         method: 'POST',
         headers: headers,
         body: body
@@ -250,12 +250,40 @@ export default function FlowEditor() {
           // Check if completed or failed
           if (execData.status === 'completed') {
             setTestSteps(execData.steps || [])
-            setTestResult({
-              execution_id: execData.execution_id,
-              status: 'completed',
-              extracted_data: execData.extracted_data,
-              processing_time: execData.processing_time
-            })
+            
+            // Fetch the actual results from /results endpoint
+            try {
+              const resultsResponse = await fetch(
+                `${API_BASE_URL}/api/v1/extract/${flow?.api_key}/executions/${executionId}/results`
+              )
+              
+              if (resultsResponse.ok) {
+                const resultsData = await resultsResponse.json()
+                setTestResult({
+                  execution_id: execData.execution_id,
+                  status: 'completed',
+                  extracted_data: resultsData.extracted_data,
+                  processing_time: execData.processing_time
+                })
+              } else {
+                // Fallback if results endpoint fails
+                setTestResult({
+                  execution_id: execData.execution_id,
+                  status: 'completed',
+                  extracted_data: null,
+                  processing_time: execData.processing_time
+                })
+              }
+            } catch (e) {
+              console.error('Error fetching results:', e)
+              setTestResult({
+                execution_id: execData.execution_id,
+                status: 'completed',
+                extracted_data: null,
+                processing_time: execData.processing_time
+              })
+            }
+            
             setIsTesting(false)
             setCurrentStep(null)
             setTestStartTime(null)
@@ -320,7 +348,7 @@ export default function FlowEditor() {
     }
 
     await startAsyncExtraction(
-      `${API_BASE_URL}/api/v1/extract/${flow?.api_key}/async`,
+      `${API_BASE_URL}/api/v1/extract/${flow?.api_key}`,
       JSON.stringify({ url: testUrl }),
       { 'Content-Type': 'application/json' }
     )
@@ -332,12 +360,16 @@ export default function FlowEditor() {
       return
     }
 
-    const formData = new FormData()
-    formData.append('file', testFile)
-
+    // Read file as binary and send with application/octet-stream
+    const fileContent = await testFile.arrayBuffer()
+    
     await startAsyncExtraction(
-      `${API_BASE_URL}/api/v1/extract/${flow?.api_key}/async`,
-      formData
+      `${API_BASE_URL}/api/v1/extract/${flow?.api_key}`,
+      fileContent,
+      {
+        'Content-Type': 'application/octet-stream',
+        'Content-Disposition': `attachment; filename="${testFile.name}"`
+      }
     )
   }
 

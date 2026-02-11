@@ -7,7 +7,7 @@ import asyncio
 import json
 import time
 from pathlib import Path
-from typing import Dict, Any, Optional, Tuple, List
+from typing import Dict, Any, Optional, List
 
 from app.core.logger import LoggerMixin
 from app.core.config import settings
@@ -16,7 +16,7 @@ from app.core.exceptions import (
     FileNotFoundError as CustomFileNotFoundError,
     FileProcessingError
 )
-from app.models.request_models import OutputFormat
+from app.models.enums import OutputFormat
 
 
 class MockDocumentParserService(LoggerMixin):

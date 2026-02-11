@@ -493,8 +493,8 @@ async def process_combined_analysis_background(
         })
         logger.info(f"Phase 2/3: Starting OCR processing")
         
-        # Process document with OCR
-        # Convert Path to string for compatibility with document parser
+        # Process document with OCR - respect user's format choice (JSON or Markdown)
+        # document_parser handles text extraction for both formats via text_from_rendered
         result = await document_parser.parse_document(
             file_path=str(file_path),
             output_format=ocr_options.output_format if ocr_options else "markdown",

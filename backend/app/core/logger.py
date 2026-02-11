@@ -22,6 +22,12 @@ def setup_logging() -> None:
         level=getattr(logging, settings.log_level.upper())
     )
     
+    # Reduce verbosity of third-party libraries
+    logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
+    logging.getLogger("sqlalchemy.pool").setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("asyncio").setLevel(logging.WARNING)
+    
     # Configure processors based on format preference
     processors = [
         structlog.stdlib.add_log_level,

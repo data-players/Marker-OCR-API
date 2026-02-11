@@ -91,6 +91,16 @@ class BatchProcessRequest(BaseModel):
         return v
 
 
+class ExtractRequest(BaseModel):
+    """Request model for extraction via public API (flow endpoint)."""
+    
+    url: Optional[str] = Field(
+        default=None,
+        description="URL of the document to process",
+        examples=["https://example.com/invoice.pdf"]
+    )
+
+
 class CombinedAnalysisRequest(BaseModel):
     """Request model for combined OCR + LLM analysis from URL."""
     

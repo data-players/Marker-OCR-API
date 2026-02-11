@@ -56,9 +56,9 @@ class DocumentParserInterface(ABC):
             
         Returns:
             Dictionary containing:
-            - text: Extracted text (markdown format)
-            - markdown_content: Same as text for markdown output
-            - rich_structure: JSON structure (for JSON output format)
+            - text: Content for LLM (markdown text or serialized JSON structure)
+            - markdown_content: Raw markdown (only for markdown output, None for JSON)
+            - rich_structure: Native JSON structure (only for JSON output, None for markdown)
             - metadata: Document metadata
             - images: Extracted images
             - processing_time: Time taken to process

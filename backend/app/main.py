@@ -19,7 +19,8 @@ from app.core.database import init_db, close_db
 from app.models.response_models import ErrorResponse
 from app.api.routes import health, documents, llm_analysis, combined_analysis
 from app.api.routes import auth, workspaces, flows, extract
-from app.api.dependencies import cleanup_services, get_document_parser
+from app.api.routes.extract_worker import extraction_worker
+from app.api.dependencies import cleanup_services, get_document_parser, get_file_handler, get_llm_service, get_redis, get_extraction_queue
 from pydantic import ValidationError
 
 # Setup logging
@@ -89,6 +90,32 @@ async def lifespan(app: FastAPI):
         logger.error(f"❌ Failed to load Marker models: {str(e)}")
         # Continue startup even if models fail to load - they can be loaded later
     
+    # Start extraction worker (processes jobs from queue one at a time)
+    logger.info("Starting extraction worker...")
+    worker_task = None
+    try:
+        file_handler = get_file_handler()
+        document_parser = get_document_parser()
+        llm_service = get_llm_service()
+        redis_service = get_redis()
+        extraction_queue = get_extraction_queue()
+        
+        logger.info("Extraction worker dependencies loaded successfully")
+        
+        worker_task = asyncio.create_task(
+            extraction_worker(
+                file_handler=file_handler,
+                document_parser=document_parser,
+                llm_service=llm_service,
+                redis_service=redis_service,
+                extraction_queue=extraction_queue
+            )
+        )
+        logger.info("✅ Extraction worker task created and started")
+    except Exception as e:
+        logger.error(f"❌ Failed to start extraction worker: {str(e)}", exc_info=True)
+        worker_task = None
+    
     try:
         yield
     except asyncio.CancelledError:
@@ -99,6 +126,16 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("Shutting down Marker OCR API service")
+    
+    # Cancel worker task if running
+    if worker_task and not worker_task.done():
+        logger.info("Stopping extraction worker...")
+        worker_task.cancel()
+        try:
+            await worker_task
+        except asyncio.CancelledError:
+            logger.info("Extraction worker stopped")
+    
     try:
         await cleanup_services()
         await close_db()

@@ -13,6 +13,7 @@ from app.services.document_parser import DocumentParserService
 from app.services.document_parser_interface import DocumentParserInterface
 from app.services.redis_service import RedisService
 from app.services.llm_service import LLMService
+from app.services.extraction_queue_service import ExtractionQueueService
 
 
 # Service instances (singletons)
@@ -20,6 +21,7 @@ _file_handler_instance: Optional[FileHandlerService] = None
 _document_parser_instance: Optional[DocumentParserService] = None
 _redis_instance: Optional[RedisService] = None
 _llm_service_instance: Optional[LLMService] = None
+_extraction_queue_instance: Optional[ExtractionQueueService] = None
 
 
 @lru_cache()
@@ -88,6 +90,21 @@ def get_llm_service() -> LLMService:
         _llm_service_instance = LLMService()
     
     return _llm_service_instance
+
+
+@lru_cache()
+def get_extraction_queue() -> ExtractionQueueService:
+    """
+    Get singleton instance of ExtractionQueueService.
+    Uses LRU cache to ensure single instance across requests.
+    """
+    global _extraction_queue_instance
+    
+    if _extraction_queue_instance is None:
+        redis_service = get_redis()
+        _extraction_queue_instance = ExtractionQueueService(redis_service)
+    
+    return _extraction_queue_instance
 
 
 

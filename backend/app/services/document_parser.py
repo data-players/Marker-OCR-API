@@ -8,10 +8,9 @@ import json
 import time
 import gc
 import sys
-import io
 import re
 from pathlib import Path
-from typing import Dict, Any, Optional, Tuple, List
+from typing import Dict, Any, Optional
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 
@@ -40,7 +39,6 @@ except ImportError:
             raise ImportError("Marker library not installed")
 
 from app.core.logger import get_logger
-from app.core.logger import LoggerMixin
 from app.models.enums import OutputFormat
 from app.services.marker_log_handler import setup_marker_log_interception, remove_marker_log_interception
 from app.services.document_parser_interface import DocumentParserInterface
@@ -80,9 +78,8 @@ def capture_tqdm_progress(step_callback, step_name=None, loop=None):
     
     class ProgressInterceptor:
         """Intercept stdout/stderr to capture tqdm progress."""
-        def __init__(self, stream, is_stderr=False):
+        def __init__(self, stream):
             self.stream = stream
-            self.is_stderr = is_stderr
         
         def write(self, text):
             """Intercept writes and parse for tqdm progress."""
@@ -93,37 +90,24 @@ def capture_tqdm_progress(step_callback, step_name=None, loop=None):
                 
                 # Parse for tqdm progress patterns
                 if step_callback and loop:
-                    import time
-                    # Debug: Log ALL captured text to understand what Marker outputs
-                    if text.strip() and len(text.strip()) > 5:  # Ignore empty lines and very short strings
-                        logger.debug(f"🔍 [tqdm_capture] Text: {text.strip()[:150]}")
-                    
                     for pattern, step_description in progress_patterns:
                         if re.search(pattern, text, re.IGNORECASE):
-                            logger.info(f"✅ [tqdm_capture] Pattern matched: '{pattern}' -> '{step_description}'")
+                            logger.debug(f"[tqdm_capture] Pattern matched: '{pattern}' -> '{step_description}'")
                             # Extract progress info (e.g., "100%" or completion status)
                             progress_match = re.search(r'(\d+)%|(\d+)/(\d+)', text)
                             if progress_match:
-                                logger.info(f"📊 [tqdm_capture] Progress found: {progress_match.group()}")
                                 step_key = f"{step_description}_{pattern}"
-                                logger.info(f"🔑 [tqdm_capture] step_key={step_key}, in seen_progress={step_key in seen_progress}, seen_progress={seen_progress}")
                                 if step_key not in seen_progress:
                                     seen_progress.add(step_key)
-                                    logger.info(f"🔔 [tqdm_capture] First time seeing: {step_description}, calling callback")
-                                    # Start step as independent step (not sub-step)
+                                    # Start step as independent step
                                     step_start_times[step_description] = time.time()
                                     try:
-                                        # Call callback (handles both sync and async)
-                                        if step_callback is None:
-                                            logger.warning(f"⚠️ [tqdm_capture] step_callback is None!")
-                                        elif asyncio.iscoroutinefunction(step_callback):
-                                            logger.info(f"📞 [tqdm_capture] Calling ASYNC callback for step {step_description}")
+                                        if asyncio.iscoroutinefunction(step_callback):
                                             asyncio.run_coroutine_threadsafe(
                                                 step_callback(step_description, "in_progress", step_start_times[step_description]),
                                                 loop
                                             )
                                         else:
-                                            logger.info(f"📞 [tqdm_capture] Calling SYNC callback for step {step_description}")
                                             step_callback(step_description, "in_progress", step_start_times[step_description])
                                     except Exception as e:
                                         logger.warning(f"Failed to call step callback: {e}")
@@ -133,7 +117,6 @@ def capture_tqdm_progress(step_callback, step_name=None, loop=None):
                                         if step_description in step_start_times:
                                             completion_time = time.time()
                                             try:
-                                                # Call callback to complete the step
                                                 if asyncio.iscoroutinefunction(step_callback):
                                                     asyncio.run_coroutine_threadsafe(
                                                         step_callback(step_description, "completed", completion_time),
@@ -157,8 +140,8 @@ def capture_tqdm_progress(step_callback, step_name=None, loop=None):
     
     try:
         # Replace stdout/stderr with interceptors
-        sys.stdout = ProgressInterceptor(original_stdout, is_stderr=False)
-        sys.stderr = ProgressInterceptor(original_stderr, is_stderr=True)
+        sys.stdout = ProgressInterceptor(original_stdout)
+        sys.stderr = ProgressInterceptor(original_stderr)
         yield
     finally:
         # Restore original streams
@@ -440,6 +423,10 @@ class DocumentParserService(DocumentParserInterface):
         Returns:
             Dictionary containing parsed content and metadata
         """
+        # Normalize output_format to enum (accept both string and enum)
+        if isinstance(output_format, str):
+            output_format = OutputFormat(output_format)
+        
         # Helper to call step callback if provided
         async def update_step(step_name: str, status: str, timestamp_or_substep = None):
             if step_callback:
@@ -513,13 +500,13 @@ class DocumentParserService(DocumentParserInterface):
                             renderer=json_config_parser.get_renderer()
                         )
                         
-                        # Real processing happens here
-                        # Marker steps are automatically detected by capture_tqdm_progress
-                        # Wrapper to call step_callback (async) from tqdm interception
-                        async def tqdm_callback_json(step_name: str, status: str, substep: str = None):
-                            await step_callback(step_name, status, substep)
-                        
-                        with capture_tqdm_progress(tqdm_callback_json, None, loop):
+                        # Run converter - only intercept tqdm when step_callback is provided
+                        if step_callback:
+                            async def tqdm_callback_json(step_name: str, status: str, substep: str = None):
+                                await step_callback(step_name, status, substep)
+                            with capture_tqdm_progress(tqdm_callback_json, None, loop):
+                                json_rendered = json_converter(file_path)
+                        else:
                             json_rendered = json_converter(file_path)
                         
                         # Extract and serialize native JSON structure
@@ -561,14 +548,13 @@ class DocumentParserService(DocumentParserInterface):
                             renderer=markdown_config_parser.get_renderer()
                         )
                         
-                        # Real processing happens here
-                        # Marker steps are automatically detected by capture_tqdm_progress
-                        # Wrapper to call step_callback (async) from tqdm interception  
-                        async def tqdm_callback(step_name: str, status: str, substep: str = None):
-                            await step_callback(step_name, status, substep)
-                        
-                        # Capture ALL Marker steps - Marker may execute table recognition even if not formatted
-                        with capture_tqdm_progress(tqdm_callback, None, loop):
+                        # Run converter - only intercept tqdm when step_callback is provided
+                        if step_callback:
+                            async def tqdm_callback(step_name: str, status: str, substep: str = None):
+                                await step_callback(step_name, status, substep)
+                            with capture_tqdm_progress(tqdm_callback, None, loop):
+                                markdown_rendered = markdown_converter(file_path)
+                        else:
                             markdown_rendered = markdown_converter(file_path)
                         
                         # Extract markdown content
@@ -610,9 +596,17 @@ class DocumentParserService(DocumentParserInterface):
                     }
                     
                     # Only include generated formats
+                    # The LLM receives the native Marker output as chosen by the user
                     if need_markdown:
                         result["text"] = markdown_content
                         result["markdown_content"] = markdown_content
+                    elif need_json and rich_structure:
+                        # Serialize Marker JSON structure as formatted string for LLM
+                        # User chose JSON: LLM receives the native Marker JSON output
+                        json_text = json.dumps(rich_structure, indent=2, ensure_ascii=False)
+                        result["text"] = json_text
+                        result["markdown_content"] = None
+                        logger.info(f"📝 JSON structure serialized: {len(json_text)} chars for LLM")
                     else:
                         result["text"] = ""
                         result["markdown_content"] = None
@@ -641,7 +635,7 @@ class DocumentParserService(DocumentParserInterface):
                         rendered = converter(file_path)
                         text, metadata, images = text_from_rendered(rendered)
                         
-                        # Sérialiser les objets non-sérialisables
+                        # Serialize non-serializable objects for Redis
                         metadata = serialize_pydantic_objects(metadata)
                         images = serialize_pydantic_objects(images)
                         
